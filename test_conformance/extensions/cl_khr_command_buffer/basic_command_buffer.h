@@ -19,9 +19,6 @@
 #include "command_buffer_test_base.h"
 #include "harness/typeWrappers.h"
 
-// temporary flag to be removed once simultaneous test will be sorted out
-#define USE_COMMAND_BUF_KENEL_ARG 0
-
 #define ADD_PROP(prop)                                                         \
     {                                                                          \
         prop, #prop                                                            \
@@ -63,12 +60,12 @@ protected:
     size_t num_elements;
 
     // Device support query results
-    bool simultaneous_use;
+    bool simultaneous_use_support;
     bool out_of_order_support;
 
     // user request for simultaneous use
     bool simultaneous_use_requested;
-    bool double_buffers_size;
+    unsigned buffer_size_multiplier;
 };
 
 template <class T>
