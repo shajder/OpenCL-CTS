@@ -13,100 +13,209 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
+
+#include <harness/os_helpers.h>
+
 #include "basic_command_buffer.h"
 #include "procs.h"
 
+#if !defined(_WIN32)
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
+#include <unistd.h>
+#define streamDup(fd1) dup(fd1)
+#define streamDup2(fd1, fd2) dup2(fd1, fd2)
+#endif
+#include <limits.h>
+#include <time.h>
+
+#if defined(_WIN32)
+#include <io.h>
+#define streamDup(fd1) _dup(fd1)
+#define streamDup2(fd1, fd2) _dup2(fd1, fd2)
+#endif
+
 #include <vector>
+#include <fstream>
+#include <stdio.h>
 
 namespace {
 
 ////////////////////////////////////////////////////////////////////////////////
-// Command-queue substitution tests which handles below cases:
-// -substitution on queue without properties
-// -substitution on queue with properties
-// -simultaneous use queue substitution
+// printf tests for cl_khr_command_buffer which handles below cases:
+// -test cases for device side Printf
+// -test cases for device side printf with a simultaneous use command-buffer
 
 template < bool simul_use >
 struct CommandBufferPrintfTest : public BasicCommandBufferTest
 {
     CommandBufferPrintfTest(cl_device_id device, cl_context context,
-                        cl_command_queue queue)
-        : BasicCommandBufferTest(device, context, queue),
-          user_event(nullptr)
+                            cl_command_queue queue)
+        : BasicCommandBufferTest(device, context, queue), user_event(nullptr),
+          file_descriptor(0)
     {
-        double_buffers_size = simultaneous_use_requested = simul_use;
+        simultaneous_use_requested = simul_use;
+        if (simul_use)
+        {
+            buffer_size_multiplier = 2;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    void ReleaseOutputStream(int fd)
+    {
+        fflush(stdout);
+        streamDup2(fd, fileno(stdout));
+        close(fd);
+    }
+
+    //--------------------------------------------------------------------------
+    int AcquireOutputStream(int* error)
+    {
+        int fd = streamDup(fileno(stdout));
+        *error = 0;
+        if (!freopen(temp_filename.c_str(), "wt", stdout))
+        {
+            ReleaseOutputStream(fd);
+            *error = -1;
+        }
+        return fd;
+    }
+
+    //--------------------------------------------------------------------------
+    void GetAnalysisBuffer(std::stringstream& buffer)
+    {
+        std::ifstream fp(temp_filename, std::ios::in);
+        if (fp.is_open())
+        {
+            buffer << fp.rdbuf();
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    void PurgeTempFile()
+    {
+        std::ofstream ofs(temp_filename,
+                          std::ofstream::out | std::ofstream::trunc);
+        ofs.close();
     }
 
     //--------------------------------------------------------------------------
     bool Skip() override
     {
-      return (simultaneous_use_requested && !simultaneous_use)
-          || BasicCommandBufferTest::Skip();
+        return (simultaneous_use_requested && !simultaneous_use_support)
+            || BasicCommandBufferTest::Skip();
     }
 
     //--------------------------------------------------------------------------
-    cl_int CreateCommandQueueWithProperties(cl_command_queue &queue_with_prop)
+    cl_int SetUpKernel() override
     {
-        cl_int error = 0;
-        cl_queue_properties_khr device_props = 0;
+        cl_int error = CL_SUCCESS;
 
-        error = clGetDeviceInfo(device, CL_DEVICE_QUEUE_PROPERTIES,
-                                sizeof(device_props), &device_props, nullptr);
-        test_error(error,
-                   "clGetDeviceInfo for CL_DEVICE_QUEUE_PROPERTIES failed");
+        const char* kernel_str =
+            R"(
+      __kernel void print(__global char* in, __global char* out, __global int* offset)
+      {
+          size_t id = get_global_id(0);
+          int ind = offset[0] + offset[1] * id;
+          for(int i=0; i<offset[1]; i++) out[ind+i] = in[i];
+          printf("%s", in);
+      })";
 
-        using PropPair = std::pair<cl_queue_properties_khr, std::string>;
+        error = create_single_kernel_helper_create_program(context, &program, 1,
+                                                           &kernel_str);
+        test_error(error, "Failed to create program with source");
 
-        auto check_property = [&](const PropPair & prop)
-        {
-          if (device_props & prop.first)
-          {
-            log_info("Queue property %s supported. Testing ... \n",
-                     prop.second.c_str());
-            queue_with_prop = clCreateCommandQueue
-                (context, device, prop.first, &error);
-          }
-          else
-              log_info("Queue property %s not supported \n", prop.second.c_str());
-        };
+        error = clBuildProgram(program, 1, &device, nullptr, nullptr, nullptr);
+        test_error(error, "Failed to build program");
 
-        // in case of extending property list in future
-        std::vector< PropPair > props = {
-          ADD_PROP(CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
-          ADD_PROP(CL_QUEUE_PROFILING_ENABLE)
-        };
+        kernel = clCreateKernel(program, "print", &error);
+        test_error(error, "Failed to create print kernel");
 
-        for ( auto && prop : props )
-        {
-          check_property(prop);
-          test_error(error, "clCreateCommandQueue failed");
-          if (queue_with_prop!=nullptr)
-              return CL_SUCCESS;
-        }
+        return CL_SUCCESS;
+    }
 
-        return CL_INVALID_QUEUE_PROPERTIES;
+    //--------------------------------------------------------------------------
+    size_t data_size() const override
+    {
+        return sizeof(cl_char) * num_elements * buffer_size_multiplier
+            * max_pattern_length;
+    }
+
+    //--------------------------------------------------------------------------
+    cl_int SetUpKernelArgs() override
+    {
+        cl_int error = CL_SUCCESS;
+
+        in_mem = clCreateBuffer(context, CL_MEM_READ_ONLY,
+                                sizeof(cl_char) * (max_pattern_length + 1),
+                                nullptr, &error);
+        test_error(error, "clCreateBuffer failed");
+
+        out_mem = clCreateBuffer(context, CL_MEM_WRITE_ONLY, data_size(),
+                                 nullptr, &error);
+        test_error(error, "clCreateBuffer failed");
+
+        cl_int offset[] = { 0, max_pattern_length };
+        off_mem =
+            clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                           sizeof(offset), offset, &error);
+        test_error(error, "clCreateBuffer failed");
+
+        error = clSetKernelArg(kernel, 0, sizeof(in_mem), &in_mem);
+        test_error(error, "clSetKernelArg failed");
+
+        error = clSetKernelArg(kernel, 1, sizeof(out_mem), &out_mem);
+        test_error(error, "clSetKernelArg failed");
+
+        error = clSetKernelArg(kernel, 2, sizeof(off_mem), &off_mem);
+        test_error(error, "clSetKernelArg failed");
+
+        return CL_SUCCESS;
     }
 
     //--------------------------------------------------------------------------
     cl_int SetUp(int elements) override
     {
-        // TODO : setup command buffer with special printf kernel
-        return CL_SUCCESS;
+        // Query if device supports simultaneous use
+        cl_device_command_buffer_capabilities_khr capabilities;
+        cl_int error =
+            clGetDeviceInfo(device, CL_DEVICE_COMMAND_BUFFER_CAPABILITIES_KHR,
+                            sizeof(capabilities), &capabilities, NULL);
+        test_error(
+            error,
+            "Unable to query CL_COMMAND_BUFFER_CAPABILITY_KERNEL_PRINTF_KHR");
+
+        if ((capabilities & CL_COMMAND_BUFFER_CAPABILITY_SIMULTANEOUS_USE_KHR)
+            == 0)
+        {
+            log_error(
+                "Device capability "
+                "CL_COMMAND_BUFFER_CAPABILITY_KERNEL_PRINTF_KHR not supported");
+            return CL_INVALID_DEVICE_TYPE;
+        }
+
+        temp_filename = get_temp_filename();
+        if (temp_filename.empty())
+        {
+            log_error("get_temp_filename failed\n");
+            return -1;
+        }
+
+        return BasicCommandBufferTest::SetUp(elements);
     }
 
     //--------------------------------------------------------------------------
     cl_int Run() override
     {
         cl_int error = CL_SUCCESS;
-        cl_command_queue_properties cqp;
-        error = clGetCommandQueueInfo(queue, CL_QUEUE_PROPERTIES, sizeof(cqp), &cqp, NULL);
-        test_error(error, "clGetCommandQueueInfo failed");
 
         // record command buffer with primary queue
         error = RecordCommandBuffer();
         test_error(error, "RecordCommandBuffer failed");
 
-        if (simultaneous_use)
+        if (simultaneous_use_support)
         {
           // enque simultaneous command-buffers with substitute queue
           error = RunSimultaneous();
@@ -118,6 +227,8 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
           error = RunSingle();
           test_error(error, "RunSingle failed");
         }
+
+        std::remove(temp_filename.c_str());
 
         return CL_SUCCESS;
     }
@@ -138,18 +249,85 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
     }
 
     //--------------------------------------------------------------------------
+    int WaitForEvent(cl_event* event)
+    {
+        cl_int status = clWaitForEvents(1, event);
+        if (status != CL_SUCCESS)
+        {
+            log_error("clWaitForEvents failed");
+            return status;
+        }
+
+        status = clReleaseEvent(*event);
+        if (status != CL_SUCCESS)
+        {
+            log_error("clReleaseEvent failed. (*event)");
+            return status;
+        }
+        return CL_SUCCESS;
+    }
+
+    //--------------------------------------------------------------------------
     cl_int RunSingle()
     {
       cl_int error = CL_SUCCESS;
-      std::vector<cl_int> output_data(num_elements);
+      std::vector<cl_char> output_data(num_elements * max_pattern_length);
 
-      error = clEnqueueFillBuffer(queue, in_mem, &pattern_pri, sizeof(cl_int),
-                                  0, data_size(), 0, nullptr, nullptr);
+      unsigned pattern_length =
+          std::max(min_pattern_length, rand() % max_pattern_length);
+      char pattern_character = 'a' + rand() % 26;
+      std::string pattern(pattern_length, pattern_character);
+
+      auto in_mem_size = sizeof(cl_char) * (pattern_length + 1);
+      error = clEnqueueWriteBuffer(queue, in_mem, CL_TRUE, 0, in_mem_size,
+                                   &pattern[0], 0, nullptr, nullptr);
       test_error(error, "clEnqueueFillBuffer failed");
 
-      error = clEnqueueCommandBufferKHR(0, nullptr, command_buffer, 0,
-                                        nullptr, nullptr);
-      test_error(error, "clEnqueueCommandBufferKHR failed");
+      cl_int offset[] = { 0, pattern_length };
+      error = clEnqueueWriteBuffer(queue, off_mem, CL_TRUE, 0, sizeof(offset),
+                                   offset, 0, nullptr, nullptr);
+      test_error(error, "clEnqueueFillBuffer failed");
+
+
+      file_descriptor = AcquireOutputStream(&error);
+      if (error != 0)
+      {
+          log_error("Error while redirection stdout to file");
+          return TEST_FAIL;
+      }
+
+      cl_event command_buffer_event;
+      error = clEnqueueCommandBufferKHR(0, nullptr, command_buffer, 0, nullptr,
+                                        &command_buffer_event);
+      if (error != CL_SUCCESS)
+      {
+          ReleaseOutputStream(file_descriptor);
+          log_error("\n clEnqueueCommandBufferKHR failed errcode:%d\n", error);
+          return TEST_FAIL;
+      }
+
+
+      fflush(stdout);
+      error = clFlush(queue);
+      if (error != CL_SUCCESS)
+      {
+          ReleaseOutputStream(file_descriptor);
+          log_error("clFlush failed\n");
+          return TEST_FAIL;
+      }
+
+      // Wait until kernel finishes its execution and (thus) the output printed
+      // from the kernel is immediately printed
+      error = WaitForEvent(&command_buffer_event);
+      if (error != CL_SUCCESS)
+      {
+          ReleaseOutputStream(file_descriptor);
+          log_error("\n WaitForEvent failed errcode:%d\n", error);
+          return TEST_FAIL;
+      }
+
+      ReleaseOutputStream(file_descriptor);
+
 
       error = clEnqueueReadBuffer(queue, out_mem, CL_TRUE, 0, data_size(),
                                   output_data.data(), 0, nullptr, nullptr);
@@ -158,9 +336,17 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
       error = clFinish(queue);
       test_error(error, "clFinish failed");
 
-      for (size_t i = 0; i < num_elements; i++)
+      std::stringstream sstr;
+      GetAnalysisBuffer(sstr);
+      if (sstr.str().size() != num_elements * pattern_length)
       {
-          CHECK_VERIFICATION_ERROR(pattern_pri, output_data[i], i);
+          log_error("GetAnalysisBuffer failed\n");
+          return TEST_FAIL;
+      }
+
+      for (size_t i = 0; i < num_elements * pattern_length; i++)
+      {
+          CHECK_VERIFICATION_ERROR(sstr.str().at(i), output_data[i], i);
       }
 
       return CL_SUCCESS;
@@ -254,6 +440,16 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
     const cl_int pattern_sec = 0xC;
 
     clEventWrapper user_event = nullptr;
+
+    std::string temp_filename;
+    int file_descriptor;
+
+    // specifies max test length for printf pattern
+    const unsigned max_pattern_length = 6;
+    // specifies min test length for printf pattern
+    const unsigned min_pattern_length = 1;
+    // specifies number of command-buffer equeue iterations
+    const unsigned num_test_iters = 3;
 };
 
 //#undef CHECK_VERIFICATION_ERROR
