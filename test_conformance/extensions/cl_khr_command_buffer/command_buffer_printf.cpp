@@ -268,7 +268,7 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
     }
 
     //--------------------------------------------------------------------------
-    cl_int EnqueueSinglePass(const std::string& pattern,
+    cl_int EnqueueSinglePass(const std::vector<cl_char>& pattern,
                              std::vector<cl_char>& output_data)
     {
       cl_int error = CL_SUCCESS;
@@ -354,7 +354,7 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
             unsigned pattern_length =
                 std::max(min_pattern_length, rand() % max_pattern_length);
             char pattern_character = 'a' + rand() % 26;
-            std::string pattern(pattern_length + 1, pattern_character);
+            std::vector<cl_char> pattern(pattern_length + 1, pattern_character);
             pattern[pattern_length] = '\0';
             error = EnqueueSinglePass(pattern, output_data);
             test_error(error, "EnqueueSinglePass failed");
@@ -369,7 +369,7 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
     //--------------------------------------------------------------------------
     struct SimulPassData
     {
-        std::string pattern;
+        std::vector<cl_char> pattern;
         cl_int offset;
         std::vector<cl_char> output_buffer;
     };
@@ -427,7 +427,7 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
         {
             unsigned pattern_length =
                 std::max(min_pattern_length, rand() % max_pattern_length);
-            std::string pattern(pattern_length + 1, pattern_character);
+            std::vector<cl_char> pattern(pattern_length + 1, pattern_character);
             pattern[pattern_length] = '\0';
             simul_passes[i] = { pattern, i * offset,
                                 std::vector<cl_char>(num_elements
