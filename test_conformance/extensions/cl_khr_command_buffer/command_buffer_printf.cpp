@@ -272,12 +272,12 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
                              std::vector<cl_char>& output_data)
     {
       cl_int error = CL_SUCCESS;
-      auto in_mem_size = sizeof(cl_char) * (pattern.size() + 1);
+      auto in_mem_size = sizeof(cl_char) * pattern.size();
       error = clEnqueueWriteBuffer(queue, in_mem, CL_TRUE, 0, in_mem_size,
                                    &pattern[0], 0, nullptr, nullptr);
       test_error(error, "clEnqueueFillBuffer failed");
 
-      cl_int offset[] = { 0, pattern.size() };
+      cl_int offset[] = { 0, pattern.size() - 1 };
       error = clEnqueueWriteBuffer(queue, off_mem, CL_TRUE, 0, sizeof(offset),
                                    offset, 0, nullptr, nullptr);
       test_error(error, "clEnqueueFillBuffer failed");
@@ -329,13 +329,13 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
 
       std::stringstream sstr;
       GetAnalysisBuffer(sstr);
-      if (sstr.str().size() != num_elements * pattern.size())
+      if (sstr.str().size() != num_elements * offset[1])
       {
           log_error("GetAnalysisBuffer failed\n");
           return TEST_FAIL;
       }
 
-      for (size_t i = 0; i < num_elements * pattern.size(); i++)
+      for (size_t i = 0; i < num_elements * offset[1]; i++)
       {
           CHECK_VERIFICATION_ERROR(sstr.str().at(i), output_data[i], i);
       }
@@ -354,7 +354,8 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
             unsigned pattern_length =
                 std::max(min_pattern_length, rand() % max_pattern_length);
             char pattern_character = 'a' + rand() % 26;
-            std::string pattern(pattern_length, pattern_character);
+            std::string pattern(pattern_length + 1, pattern_character);
+            pattern[pattern_length] = '\0';
             error = EnqueueSinglePass(pattern, output_data);
             test_error(error, "EnqueueSinglePass failed");
 
@@ -377,14 +378,14 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
     cl_int EnqueueSimultaneousPass(SimulPassData& pd)
     {
         // the same patter for both
-        auto in_mem_size = sizeof(cl_char) * (pd.pattern.size() + 1);
+        auto in_mem_size = sizeof(cl_char) * pd.pattern.size();
         cl_int error =
             clEnqueueWriteBuffer(queue, in_mem, CL_FALSE, 0, in_mem_size,
                                  &pd.pattern[0], 0, nullptr, nullptr);
         test_error(error, "clEnqueueFillBuffer failed");
 
 
-        cl_int offset[] = { pd.offset, pd.pattern.size() };
+        cl_int offset[] = { pd.offset, pd.pattern.size() - 1 };
         error =
             clEnqueueWriteBuffer(queue, off_mem, CL_FALSE, 0, sizeof(offset),
                                  offset, 0, nullptr, nullptr);
@@ -426,7 +427,8 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
         {
             unsigned pattern_length =
                 std::max(min_pattern_length, rand() % max_pattern_length);
-            std::string pattern(pattern_length, pattern_character);
+            std::string pattern(pattern_length + 1, pattern_character);
+            pattern[pattern_length] = '\0';
             simul_passes[i] = { pattern, i * offset,
                                 std::vector<cl_char>(num_elements
                                                      * pattern_length) };
@@ -457,6 +459,16 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
             return TEST_FAIL;
         }
 
+
+        // finish command queue
+        error = clFinish(queue);
+        if (error != CL_SUCCESS)
+        {
+            ReleaseOutputStream(file_descriptor);
+            log_error("clFinish failed\n");
+            return TEST_FAIL;
+        }
+
         // flush streams
         fflush(stdout);
         error = clFlush(queue);
@@ -467,14 +479,6 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
             return TEST_FAIL;
         }
 
-        // finish command queue
-        error = clFinish(queue);
-        if (error != CL_SUCCESS)
-        {
-            ReleaseOutputStream(file_descriptor);
-            log_error("clFinish failed\n");
-            return TEST_FAIL;
-        }
 
         ReleaseOutputStream(file_descriptor);
 
