@@ -459,16 +459,6 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
             return TEST_FAIL;
         }
 
-
-        // finish command queue
-        error = clFinish(queue);
-        if (error != CL_SUCCESS)
-        {
-            ReleaseOutputStream(file_descriptor);
-            log_error("clFinish failed\n");
-            return TEST_FAIL;
-        }
-
         // flush streams
         fflush(stdout);
         error = clFlush(queue);
@@ -479,8 +469,11 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
             return TEST_FAIL;
         }
 
-
         ReleaseOutputStream(file_descriptor);
+
+        // finish command queue
+        error = clFinish(queue);
+        test_error(error, "clFinish failed\n");
 
         std::stringstream sstr;
         GetAnalysisBuffer(sstr);
