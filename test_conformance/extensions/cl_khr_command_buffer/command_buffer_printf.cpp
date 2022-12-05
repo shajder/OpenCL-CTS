@@ -37,6 +37,8 @@
 #endif
 
 #include <vector>
+#include <list>
+#include <map>
 #include <fstream>
 #include <stdio.h>
 
@@ -268,6 +270,18 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
     }
 
     //--------------------------------------------------------------------------
+#define test_error_release_stdout(errCode, msg)                                \
+    {                                                                          \
+        auto errCodeResult = errCode;                                          \
+        if (errCodeResult != CL_SUCCESS)                                       \
+        {                                                                      \
+            ReleaseOutputStream(file_descriptor);                              \
+            print_error(errCodeResult, msg);                                   \
+            return errCode;                                                    \
+        }                                                                      \
+    }
+
+    //--------------------------------------------------------------------------
     cl_int EnqueueSinglePass(const std::vector<cl_char>& pattern,
                              std::vector<cl_char>& output_data)
     {
@@ -292,40 +306,25 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
       cl_event wait_event;
       error = clEnqueueCommandBufferKHR(0, nullptr, command_buffer, 0, nullptr,
                                         &wait_event);
-      if (error != CL_SUCCESS)
-      {
-          ReleaseOutputStream(file_descriptor);
-          log_error("clEnqueueCommandBufferKHR failed errcode: %d\n", error);
-          return TEST_FAIL;
-      }
+      test_error_release_stdout(error, "clEnqueueCommandBufferKHR failed");
 
       fflush(stdout);
       error = clFlush(queue);
-      if (error != CL_SUCCESS)
-      {
-          ReleaseOutputStream(file_descriptor);
-          log_error("clFlush failed\n");
-          return TEST_FAIL;
-      }
+      test_error_release_stdout(error, "clFlush failed");
 
       // Wait until kernel finishes its execution and (thus) the output printed
       // from the kernel is immediately printed
       error = WaitForEvent(&wait_event);
-      if (error != CL_SUCCESS)
-      {
-          ReleaseOutputStream(file_descriptor);
-          log_error("\n WaitForEvent failed errcode:%d\n", error);
-          return TEST_FAIL;
-      }
-
-      ReleaseOutputStream(file_descriptor);
+      test_error_release_stdout(error, "WaitForEvent failed");
 
       error = clEnqueueReadBuffer(queue, out_mem, CL_FALSE, 0, data_size(),
                                   output_data.data(), 0, nullptr, nullptr);
-      test_error(error, "clEnqueueReadBuffer failed");
+      test_error_release_stdout(error, "clEnqueueReadBuffer failed");
 
       error = clFinish(queue);
-      test_error(error, "clFinish failed");
+      test_error_release_stdout(error, "clFinish failed");
+
+      ReleaseOutputStream(file_descriptor);
 
       std::stringstream sstr;
       GetAnalysisBuffer(sstr);
@@ -382,34 +381,34 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
         cl_int error =
             clEnqueueWriteBuffer(queue, in_mem, CL_FALSE, 0, in_mem_size,
                                  &pd.pattern[0], 0, nullptr, nullptr);
-        test_error(error, "clEnqueueFillBuffer failed");
+        test_error_release_stdout(error, "clEnqueueFillBuffer failed");
 
 
         cl_int offset[] = { pd.offset, pd.pattern.size() - 1 };
         error =
             clEnqueueWriteBuffer(queue, off_mem, CL_FALSE, 0, sizeof(offset),
                                  offset, 0, nullptr, nullptr);
-        test_error(error, "clEnqueueFillBuffer failed");
+        test_error_release_stdout(error, "clEnqueueFillBuffer failed");
 
         if (!trigger_event)
         {
             trigger_event = clCreateUserEvent(context, &error);
-            test_error(error, "clCreateUserEvent failed");
+            test_error_release_stdout(error, "clCreateUserEvent failed");
         }
 
         error = clEnqueueCommandBufferKHR(0, nullptr, command_buffer, 1,
                                           &trigger_event, nullptr);
-        test_error(error, "clEnqueueCommandBufferKHR failed");
+        test_error_release_stdout(error, "clEnqueueCommandBufferKHR failed");
 
         error = clEnqueueReadBuffer(
             queue, out_mem, CL_FALSE, pd.offset * sizeof(cl_char),
             pd.output_buffer.size() * sizeof(cl_char), pd.output_buffer.data(),
             0, nullptr, nullptr);
-
-        test_error(error, "clEnqueueReadBuffer failed");
+        test_error_release_stdout(error, "clEnqueueReadBuffer failed");
 
         return CL_SUCCESS;
     }
+
 
     //--------------------------------------------------------------------------
     cl_int RunSimultaneous()
@@ -419,28 +418,34 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
 
         std::vector<SimulPassData> simul_passes(num_test_iters);
 
-        // the same pattern character for all simultaneous command buffers
-        char pattern_character = 'a' + rand() % 26;
+        const int pattern_chars_range = 26;
+        std::list<cl_char> pattern_chars;
+        for (size_t i = 0; i < pattern_chars_range; i++)
+            pattern_chars.push_back(cl_char('a' + i));
+
+        test_assert_error(pattern_chars.size() >= num_test_iters,
+                          "Number of simultaneous launches must be lower than "
+                          "size of characters container");
 
         cl_int total_pattern_coverage = 0;
         for (unsigned i = 0; i < num_test_iters; i++)
         {
+            // random pattern character unique for each iteration
+            auto it = pattern_chars.begin();
+            std::advance(it, rand() % pattern_chars.size());
+            char pattern_character = *it;
             unsigned pattern_length =
                 std::max(min_pattern_length, rand() % max_pattern_length);
+
             std::vector<cl_char> pattern(pattern_length + 1, pattern_character);
             pattern[pattern_length] = '\0';
             simul_passes[i] = { pattern, i * offset,
                                 std::vector<cl_char>(num_elements
                                                      * pattern_length) };
             total_pattern_coverage += simul_passes[i].output_buffer.size();
-        };
 
-        // enqueue read/write and command buffer operations
-        for (auto&& pass : simul_passes)
-        {
-            error = EnqueueSimultaneousPass(pass);
-            test_error(error, "EnqueuePass failed");
-        }
+            pattern_chars.erase(it);
+        };
 
         // takeover stdout stream
         file_descriptor = AcquireOutputStream(&error);
@@ -450,30 +455,27 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
             return TEST_FAIL;
         }
 
+        // enqueue read/write and command buffer operations
+        for (auto&& pass : simul_passes)
+        {
+            error = EnqueueSimultaneousPass(pass);
+            test_error_release_stdout(error, "EnqueuePass failed");
+        }
+
         // execute command buffers
         error = clSetUserEventStatus(trigger_event, CL_COMPLETE);
-        if (error != CL_SUCCESS)
-        {
-            ReleaseOutputStream(file_descriptor);
-            log_error("clSetUserEventStatus failed\n");
-            return TEST_FAIL;
-        }
+        test_error_release_stdout(error, "clSetUserEventStatus failed");
 
         // flush streams
         fflush(stdout);
         error = clFlush(queue);
-        if (error != CL_SUCCESS)
-        {
-            ReleaseOutputStream(file_descriptor);
-            log_error("clFlush failed\n");
-            return TEST_FAIL;
-        }
-
-        ReleaseOutputStream(file_descriptor);
+        test_error_release_stdout(error, "clFlush failed");
 
         // finish command queue
         error = clFinish(queue);
-        test_error(error, "clFinish failed\n");
+        test_error_release_stdout(error, "clFinish failed\n");
+
+        ReleaseOutputStream(file_descriptor);
 
         std::stringstream sstr;
         GetAnalysisBuffer(sstr);
@@ -484,14 +486,31 @@ struct CommandBufferPrintfTest : public BasicCommandBufferTest
         }
 
         // verify the result
-        size_t pat_ind = 0;
+        std::map<cl_char, size_t> counters_map;
+        for (int i = 0; i < total_pattern_coverage; i++)
+            counters_map[sstr.str().at(i)]++;
+
+        if (counters_map.size() != simul_passes.size())
+        {
+            log_error("printout inconsistent with input data\n");
+            return TEST_FAIL;
+        }
+
         for (auto&& pass : simul_passes)
         {
             auto& res_data = pass.output_buffer;
-            for (size_t i = 0; i < num_elements; i++, pat_ind++)
+
+            if (res_data.empty()
+                || res_data.size() != counters_map[res_data.front()])
             {
-                CHECK_VERIFICATION_ERROR(sstr.str().at(pat_ind), res_data[i],
-                                         i);
+                log_error("output buffer inconsistent with printout\n");
+                return TEST_FAIL;
+            }
+
+            // verify consistency of output buffer
+            for (size_t i = 0; i < res_data.size(); i++)
+            {
+                CHECK_VERIFICATION_ERROR(res_data.front(), res_data[i], i);
             }
         }
 
