@@ -22,7 +22,10 @@ test_definition test_list[] = { ADD_TEST(single_ndrange),
                                 ADD_TEST(user_events),
                                 ADD_TEST(out_of_order),
                                 ADD_TEST(basic_printf),
-                                ADD_TEST(simultaneous_printf) };
+                                ADD_TEST(simultaneous_printf),
+                                ADD_TEST(queue_substitution),
+                                ADD_TEST(properties_queue_substitution),
+                                ADD_TEST(simultaneous_queue_substitution) };
 
 
 int main(int argc, const char *argv[])
