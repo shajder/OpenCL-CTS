@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017 The Khronos Group Inc.
+// Copyright (c) 2023 The Khronos Group Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-#include "harness/compat.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,8 +20,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "procs.h"
-
-
 
 cl_int get_type_size( cl_context context, cl_command_queue queue, const char *type, cl_ulong *size, cl_device_id device  )
 {
@@ -40,15 +37,11 @@ cl_int get_type_size( cl_context context, cl_command_queue queue, const char *ty
     clMemWrapper m;
     cl_uint        temp;
 
-
     if (!strncmp(type, "double", 6))
-    {
         sizeof_kernel_code[0] = "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-    }
     else if (!strncmp(type, "half", 4))
-    {
         sizeof_kernel_code[0] = "#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n";
-    }
+
     cl_int err = create_single_kernel_helper_with_build_options(
         context, &p, &k, 4, sizeof_kernel_code, "test_sizeof", nullptr);
     test_error(err, "Failed to build kernel/program.");
@@ -66,7 +59,6 @@ cl_int get_type_size( cl_context context, cl_command_queue queue, const char *ty
     test_error(err, "clEnqueueReadBuffer failed.");
 
     *size = (cl_ulong) temp;
-
     return err;
 }
 
@@ -80,33 +72,20 @@ typedef struct size_table
 const size_table  scalar_table[] =
 {
     // Fixed size entries from table 6.1
-    {  "char",              1,  sizeof( cl_char )   },
-    {  "uchar",             1,  sizeof( cl_uchar)   },
     {  "unsigned char",     1,  sizeof( cl_uchar)   },
-    {  "short",             2,  sizeof( cl_short)   },
-    {  "ushort",            2,  sizeof( cl_ushort)  },
     {  "unsigned short",    2,  sizeof( cl_ushort)  },
-    {  "int",               4,  sizeof( cl_int )    },
-    {  "uint",              4,  sizeof( cl_uint)    },
     {  "unsigned int",      4,  sizeof( cl_uint)    },
-    {  "float",             4,  sizeof( cl_float)   },
-    {  "long",              8,  sizeof( cl_long )   },
-    {  "ulong",             8,  sizeof( cl_ulong)   },
     {  "unsigned long",     8,  sizeof( cl_ulong)   }
 };
 
-const size_table  vector_table[] =
-{
+const size_table vector_table[] = {
     // Fixed size entries from table 6.1
-    {  "char",      1,  sizeof( cl_char )   },
-    {  "uchar",     1,  sizeof( cl_uchar)   },
-    {  "short",     2,  sizeof( cl_short)   },
-    {  "ushort",    2,  sizeof( cl_ushort)  },
-    {  "int",       4,  sizeof( cl_int )    },
-    {  "uint",      4,  sizeof( cl_uint)    },
-    {  "float",     4,  sizeof( cl_float)   },
-    {  "long",      8,  sizeof( cl_long )   },
-    {  "ulong",     8,  sizeof( cl_ulong)   }
+    { "char", 1, sizeof(cl_char) },     { "uchar", 1, sizeof(cl_uchar) },
+    { "short", 2, sizeof(cl_short) },   { "ushort", 2, sizeof(cl_ushort) },
+    { "int", 4, sizeof(cl_int) },       { "uint", 4, sizeof(cl_uint) },
+    { "half", 2, sizeof(cl_half) },     { "float", 4, sizeof(cl_float) },
+    { "double", 8, sizeof(cl_double) }, { "long", 8, sizeof(cl_long) },
+    { "ulong", 8, sizeof(cl_ulong) }
 };
 
 const char  *ptr_table[] =
@@ -130,12 +109,11 @@ static int IsPowerOfTwo( cl_ulong x ){ return 0 == (x & (x-1)); }
 int test_sizeof(cl_device_id device, cl_context context, cl_command_queue queue, int num_elements)
 {
     size_t i, j;
-    cl_ulong test;
     cl_uint ptr_size = CL_UINT_MAX;
-    cl_int err = CL_SUCCESS;
 
     // Check address space size
-    err = clGetDeviceInfo(device, CL_DEVICE_ADDRESS_BITS, sizeof(ptr_size), &ptr_size, NULL);
+    cl_int err = clGetDeviceInfo(device, CL_DEVICE_ADDRESS_BITS,
+                                 sizeof(ptr_size), &ptr_size, NULL);
     if( err || ptr_size > 64)
     {
         log_error( "FAILED:  Unable to get CL_DEVICE_ADDRESS_BITS for device %p\n", device );
@@ -147,16 +125,14 @@ int test_sizeof(cl_device_id device, cl_context context, cl_command_queue queue,
     // Test standard scalar sizes
     for( i = 0; i < sizeof( scalar_table ) / sizeof( scalar_table[0] ); i++ )
     {
-        if( ! gHasLong &&
-           (0 == strcmp(scalar_table[i].name, "long") ||
-            0 == strcmp(scalar_table[i].name, "ulong") ||
-            0 == strcmp(scalar_table[i].name, "unsigned long")))
+        if (!gHasLong && 0 == strcmp(scalar_table[i].name, "unsigned long"))
         {
-            log_info("\nLongs are not supported by this device. Skipping test.\t");
+            log_info(
+                "\nLongs are not supported by this device. Skipping test.\n");
             continue;
         }
 
-        test = CL_ULONG_MAX;
+        cl_ulong test = CL_ULONG_MAX;
         err = get_type_size( context, queue, scalar_table[i].name, &test, device);
         if( err )
             return err;
@@ -174,35 +150,54 @@ int test_sizeof(cl_device_id device, cl_context context, cl_command_queue queue,
     }
     log_info( "\n" );
 
+    bool hasFp64 = is_extension_available(device, "cl_khr_fp64");
+    bool hasFp16 = is_extension_available(device, "cl_khr_fp16");
+    const char *vec_size_names[] = { "", "2", "4", "8", "16" };
+
     // Test standard vector sizes
-    for( j = 2; j <= 16; j *= 2 )
+    for (j = 0; j < sizeof(vec_size_names) / sizeof(vec_size_names[0]); j++)
     {
         // For each vector size, iterate through types
         for( i = 0; i < sizeof( vector_table ) / sizeof( vector_table[0] ); i++ )
         {
-            if( !gHasLong &&
-               (0 == strcmp(vector_table[i].name, "long") ||
-                0 == strcmp(vector_table[i].name, "ulong")))
+            bool skip = false;
+            if (!gHasLong
+                && (0 == strcmp(vector_table[i].name, "long")
+                    || 0 == strcmp(vector_table[i].name, "ulong")))
+                skip = true;
+            else if (!hasFp64 && 0 == strcmp(vector_table[i].name, "double"))
+                skip = true;
+            else if (!hasFp16 && 0 == strcmp(vector_table[i].name, "half"))
+                skip = true;
+
+            if (skip)
             {
-                log_info("\nLongs are not supported by this device. Skipping test.\t");
+                log_info(
+                    "\n%s are not supported by this device. Skipping test.\n",
+                    vector_table[i].name);
                 continue;
             }
 
             char name[32];
-            sprintf( name, "%s%ld", vector_table[i].name, j );
+            std::snprintf(name, sizeof(name), "%s%s", vector_table[i].name,
+                          vec_size_names[j]);
 
-            test = CL_ULONG_MAX;
+            cl_ulong test = CL_ULONG_MAX;
             err = get_type_size( context, queue, name, &test, device  );
-            if( err )
-                return err;
-            if( test != j * vector_table[i].size )
+            test_error(err, "get_type_size failed");
+
+            if (test != pow(2, j) * vector_table[i].size)
             {
-                log_error( "\nFAILED: Type %s has size %lld, but expected size %lld!\n", name, test, j * vector_table[i].size );
+                log_error("\nFAILED: Type %s has size %lld, but expected size "
+                          "%lld!\n",
+                          name, test, pow(2, j) * vector_table[i].size);
                 return -1;
             }
-            if( test != j * vector_table[i].cl_size )
+            if (test != pow(2, j) * vector_table[i].cl_size)
             {
-                log_error( "\nFAILED: Type %s has size %lld, but cl_ size is %lld!\n", name, test, j * vector_table[i].cl_size );
+                log_error(
+                    "\nFAILED: Type %s has size %lld, but cl_ size is %lld!\n",
+                    name, test, pow(2, j) * vector_table[i].cl_size);
                 return -2;
             }
             log_info( "%16s", name );
@@ -213,10 +208,10 @@ int test_sizeof(cl_device_id device, cl_context context, cl_command_queue queue,
     //Check that pointer sizes are correct
     for( i = 0; i < sizeof( ptr_table ) / sizeof( ptr_table[0] ); i++ )
     {
-        test = CL_ULONG_MAX;
+        cl_ulong test = CL_ULONG_MAX;
         err = get_type_size( context, queue, ptr_table[i], &test, device );
-        if( err )
-            return err;
+        test_error(err, "get_type_size failed");
+
         if( test != ptr_size )
         {
             log_error( "\nFAILED: Type %s has size %lld, but expected size %u!\n", ptr_table[i], test, ptr_size );
@@ -225,39 +220,32 @@ int test_sizeof(cl_device_id device, cl_context context, cl_command_queue queue,
         log_info( "%16s", ptr_table[i] );
     }
 
-    // Check that intptr_t is large enough
-    test = CL_ULONG_MAX;
-    err = get_type_size( context, queue, "intptr_t", &test, device );
-    if( err )
-        return err;
-    if( test < ptr_size )
-    {
-        log_error( "\nFAILED: intptr_t has size %lld, but must be at least %u!\n", test, ptr_size );
-        return -1;
-    }
-    if( ! IsPowerOfTwo( test ) )
-    {
-        log_error( "\nFAILED: sizeof(intptr_t) is %lld, but must be a power of two!\n", test );
-        return -2;
-    }
-    log_info( "%16s", "intptr_t" );
+    auto test_pow2_type = [&](const char *type_name) {
+        cl_ulong test = CL_ULONG_MAX;
+        err = get_type_size(context, queue, type_name, &test, device);
+        test_error(err, "get_type_size failed");
 
-    // Check that uintptr_t is large enough
-    test = CL_ULONG_MAX;
-    err = get_type_size( context, queue, "uintptr_t", &test, device );
-    if( err )
-        return err;
-    if( test < ptr_size )
-    {
-        log_error( "\nFAILED: uintptr_t has size %lld, but must be at least %u!\n", test, ptr_size );
-        return -1;
-    }
-    if( ! IsPowerOfTwo( test ) )
-    {
-        log_error( "\nFAILED: sizeof(uintptr_t) is %lld, but must be a power of two!\n", test );
-        return -2;
-    }
-    log_info( "%16s\n", "uintptr_t" );
+        if (test < ptr_size)
+        {
+            log_error("\nFAILED: %s has size %lld, but must be at least %u!\n",
+                      type_name, test, ptr_size);
+            return -1;
+        }
+        if (!IsPowerOfTwo(test))
+        {
+            log_error(
+                "\nFAILED: sizeof(%s) is %lld, but must be a power of two!\n",
+                type_name, test);
+            return -2;
+        }
+        log_info("%16s", type_name);
+        return 0;
+    };
+
+    // Check that intptr_t/uintptr_t is large enough
+    err |= test_pow2_type("intptr_t");
+    err |= test_pow2_type("uintptr_t");
+    test_error(err, "test_pow2_type failed");
 
     //Check that other types are powers of two
     for( i = 0; i < sizeof( other_types ) / sizeof( other_types[0] ); i++ )
@@ -284,10 +272,10 @@ int test_sizeof(cl_device_id device, cl_context context, cl_command_queue queue,
           continue;
         }
 
-        test = CL_ULONG_MAX;
+        cl_ulong test = CL_ULONG_MAX;
         err = get_type_size( context, queue, other_types[i], &test, device );
-        if( err )
-            return err;
+        test_error(err, "get_type_size failed");
+
         if( ! IsPowerOfTwo( test ) )
         {
             log_error( "\nFAILED: Type %s has size %lld, which is not a power of two (section 6.1.5)!\n", other_types[i], test );
@@ -297,78 +285,5 @@ int test_sizeof(cl_device_id device, cl_context context, cl_command_queue queue,
     }
     log_info( "\n" );
 
-
-    //Check double
-    if( is_extension_available( device, "cl_khr_fp64" ) )
-    {
-        log_info( "\tcl_khr_fp64:" );
-        test = CL_ULONG_MAX;
-        err = get_type_size( context, queue, "double", &test, device );
-        if( err )
-            return err;
-        if( test != 8 )
-        {
-            log_error( "\nFAILED: double has size %lld, but must be 8!\n", test );
-            return -1;
-        }
-        log_info( "%16s", "double" );
-
-        // Test standard vector sizes
-        for( j = 2; j <= 16; j *= 2 )
-        {
-            char name[32];
-            sprintf( name, "double%ld", j );
-
-            test = CL_ULONG_MAX;
-            err = get_type_size( context, queue, name, &test, device );
-            if( err )
-                return err;
-            if( test != 8*j )
-            {
-                log_error( "\nFAILED: %s has size %lld, but must be %ld!\n", name, test, 8 * j);
-                return -1;
-            }
-            log_info( "%16s", name );
-        }
-        log_info( "\n" );
-    }
-
-    //Check half
-    if( is_extension_available( device, "cl_khr_fp16" ) )
-    {
-        log_info( "\tcl_khr_fp16:" );
-        test = CL_ULONG_MAX;
-        err = get_type_size( context, queue, "half", &test, device );
-        if( err )
-            return err;
-        if( test != 2 )
-        {
-            log_error( "\nFAILED: half has size %lld, but must be 2!\n", test );
-            return -1;
-        }
-        log_info( "%16s", "half" );
-
-        // Test standard vector sizes
-        for( j = 2; j <= 16; j *= 2 )
-        {
-            char name[32];
-            sprintf( name, "half%ld", j );
-
-            test = CL_ULONG_MAX;
-            err = get_type_size( context, queue, name, &test, device );
-            if( err )
-                return err;
-            if( test != 2*j )
-            {
-                log_error( "\nFAILED: %s has size %lld, but must be %ld!\n", name, test, 2 * j);
-                return -1;
-            }
-            log_info( "%16s", name );
-        }
-        log_info( "\n" );
-    }
-
     return err;
 }
-
-
