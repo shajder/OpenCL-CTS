@@ -15,6 +15,7 @@
 //
 #include "harness/testHarness.h"
 #include "harness/compat.h"
+#include "harness/conversions.h"
 #include "harness/ThreadPool.h"
 
 #if defined(__APPLE__)
@@ -326,8 +327,10 @@ int CalcRefValsPat<InType, OutType, InFP, OutFP>::check_result(void *test,
         for (uint32_t i = 0; i < count; i++)
             if (t[i] != c[i] &&
                 // Allow nan's to be binary different
-                !((t[i] & 0x7fff) > 0x7C00 && (c[i] & 0x7fff) > 0x7C00)
-                && !(a[i] != (cl_uchar)0 && t[i] == (c[i] & 0x8000)))
+                !((t[i] & 0x7fff) > 0x7C00 && (c[i] & 0x7fff) > 0x7C00) &&
+                !(a[i] != (cl_uchar)0 && t[i] == (c[i] & 0x8000)) &&
+                // retry per section 7.5.3.2, with ftz on
+                !(IsHalfSubnormal(c[i]) && (HTF(t[i]) == 0.0f)))
             {
                 vlog(
                     "\nError for vector size %d found at 0x%8.8x:  *%a vs %a\n",
