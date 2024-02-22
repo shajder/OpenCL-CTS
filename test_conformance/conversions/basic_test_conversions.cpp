@@ -327,10 +327,8 @@ int CalcRefValsPat<InType, OutType, InFP, OutFP>::check_result(void *test,
         for (uint32_t i = 0; i < count; i++)
             if (t[i] != c[i] &&
                 // Allow nan's to be binary different
-                !((t[i] & 0x7fff) > 0x7C00 && (c[i] & 0x7fff) > 0x7C00) &&
-                !(a[i] != (cl_uchar)0 && t[i] == (c[i] & 0x8000)) &&
-                // retry per section 7.5.3.2, with ftz on
-                !(IsHalfSubnormal(c[i]) && (HTF(t[i]) == 0.0f)))
+                !((t[i] & 0x7fff) > 0x7C00 && (c[i] & 0x7fff) > 0x7C00)
+                && !(a[i] != (cl_uchar)0 && t[i] == (c[i] & 0x8000)))
             {
                 vlog(
                     "\nError for vector size %d found at 0x%8.8x:  *%a vs %a\n",
@@ -1008,13 +1006,20 @@ double SubtractTime(uint64_t endTime, uint64_t startTime)
 }
 #endif
 
-static void setAllowZ(uint8_t *allow, uint32_t *x, cl_uint count)
+template <typename T>
+void setAllowZ(uint8_t *allow, const T *x, const cl_uint count)
 {
-    cl_uint i;
-    for (i = 0; i < count; ++i)
-        allow[i] |= (uint8_t)((x[i] & 0x7f800000U) == 0);
+    if (std::is_same<T, uint32_t>::value)
+    {
+        for (cl_uint i = 0; i < count; ++i)
+            allow[i] |= (uint8_t)((x[i] & 0x7f800000U) == 0);
+    }
+    else if (std::is_same<T, uint16_t>::value)
+    {
+        for (cl_uint i = 0; i < count; ++i)
+            allow[i] |= (uint8_t)((x[i] & 0x7C00) == 0);
+    }
 }
-
 
 void MapResultValuesComplete(const std::unique_ptr<CalcRefValsBase> &ptr);
 
@@ -1348,7 +1353,7 @@ cl_int PrepareReference(cl_uint job_id, cl_uint thread_id, void *p)
         if (gForceHalfFTZ)
         {
             if (inType == khalf || outType == khalf)
-                setAllowZ((uint8_t *)a, (uint32_t *)s, count);
+                setAllowZ((uint8_t *)a, (uint16_t *)s, count);
         }
     }
     else
