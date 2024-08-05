@@ -33,7 +33,7 @@ int test_context_negative_create(cl_device_id device, cl_context context,
     test_error(err, "clGetPlatformIDs failed");
 
 
-    num_platforms = std::max(num_platforms, (cl_uint)2);
+    num_platforms = std::min(num_platforms, (cl_uint)2);
     std::vector<cl_platform_id> platforms(num_platforms);
 
     err = clGetPlatformIDs(num_platforms, platforms.data(), &num_platforms);
