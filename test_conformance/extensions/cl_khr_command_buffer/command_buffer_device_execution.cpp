@@ -33,7 +33,7 @@ struct CommandBufferDeviceExecutionTest : public BasicCommandBufferTest
                                      cl_command_queue queue)
         : BasicCommandBufferTest(device, context, queue)
     {
-        buffer_size_multiplier = device_execution_size_mult;
+        buffer_size_multiplier = 2;
     }
 
     bool Skip() override
@@ -79,20 +79,13 @@ struct CommandBufferDeviceExecutionTest : public BasicCommandBufferTest
         cl_int error = BasicCommandBufferTest::SetUp(elements);
         test_error(error, "BasicCommandBufferTest::SetUp failed");
 
-        cl_uint preferred_size = 0;
-        error =
-            clGetDeviceInfo(device, CL_DEVICE_QUEUE_ON_DEVICE_PREFERRED_SIZE,
-                            sizeof(preferred_size), &preferred_size, NULL);
-        test_error(error,
-                   "Unable to query CL_DEVICE_QUEUE_ON_DEVICE_PREFERRED_SIZE");
-
         // create default device-side queue
         cl_queue_properties dev_queue_props[] = {
             CL_QUEUE_PROPERTIES,
             (cl_queue_properties)(CL_QUEUE_ON_DEVICE
                                   | CL_QUEUE_ON_DEVICE_DEFAULT
                                   | CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
-            CL_QUEUE_SIZE, preferred_size, 0
+            0
         };
         device_queue = clCreateCommandQueueWithProperties(
             context, device, dev_queue_props, &error);
@@ -160,7 +153,7 @@ struct CommandBufferDeviceExecutionTest : public BasicCommandBufferTest
                            sizeof(cl_int), &offset, &error);
         test_error(error, "clCreateBuffer failed");
 
-        cl_int in_arg = device_execution_size_mult;
+        cl_int in_arg = buffer_size_multiplier;
         error = clSetKernelArg(kernel, 0, sizeof(cl_int), &in_arg);
         test_error(error, "clSetKernelArg failed");
 
@@ -219,7 +212,6 @@ struct CommandBufferDeviceExecutionTest : public BasicCommandBufferTest
     }
 
     clCommandQueueWrapper device_queue;
-    const cl_int device_execution_size_mult = 2;
 };
 
 } // anonymous namespace
