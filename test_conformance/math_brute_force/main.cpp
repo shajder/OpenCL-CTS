@@ -68,7 +68,7 @@ static bool gSkipRestOfTests;
 int gForceFTZ = 0;
 int gHostFill = 0;
 int gHasDouble = 0;
-static int gTestFloat = 1;
+int gTestFloat = 1;
 // This flag should be 'ON' by default and it can be changed through the command
 // line arguments.
 static int gTestFastRelaxed = 1;

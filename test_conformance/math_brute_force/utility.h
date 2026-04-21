@@ -65,6 +65,7 @@ extern int gHostFill;
 extern int gIsInRTZMode;
 extern int gHasHalf;
 extern int gHasDouble;
+extern int gTestFloat;
 extern int gInfNanSupport;
 extern int gIsEmbedded;
 extern int gVerboseBruteForce;

@@ -28,6 +28,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -161,12 +162,14 @@ struct AbstractEdgeCase
     std::vector<AbstractValue> inputs;
     AbstractValue expected;
 
-    bool expect_nan = false; // check isnan() instead of memcmp
+    bool expect_nan = false;
 
     bool requires_inf_nan = false; // CL_FP_INF_NAN
     bool requires_denorm = false; // CL_FP_DENORM
     bool requires_rte = false; // CL_FP_ROUND_TO_NEAREST
 };
+
+// Taken from OpenCL C Section 7.5.1. Additional Requirements Beyond C99 TC2
 
 static const AbstractEdgeCase edge_case_table[] = {
 
@@ -486,10 +489,9 @@ inline cl_int run_edge_case(const EdgeCaseSpec &ec, cl_context context,
                 for (std::size_t i = 0; i < ec.inputs.size(); ++i)
                 {
                     if (i) log_error(", ");
-                    log_error("0x");
                     log_anyvalue(ec.inputs[i]);
                 }
-                log_error(") — expected NaN, got 0x");
+                log_error(") - expected NaN, got 0x");
                 for (std::size_t i = 0; i < ec.expected.byte_size; ++i)
                     log_error("%02x", result[i]);
                 log_error("\n");
@@ -506,7 +508,6 @@ inline cl_int run_edge_case(const EdgeCaseSpec &ec, cl_context context,
                 for (std::size_t i = 0; i < ec.inputs.size(); ++i)
                 {
                     if (i) log_error(", ");
-                    log_error("0x");
                     log_anyvalue(ec.inputs[i]);
                 }
                 log_error(") - expected 0x");
@@ -526,7 +527,6 @@ inline cl_int run_edge_case(const EdgeCaseSpec &ec, cl_context context,
 
 template <typename T> AnyValue abstract_to_anyvalue(const AbstractValue &av)
 {
-    // Int jest niezależny od precyzji — zawsze cl_int
     if (av.kind == AbstractValue::Kind::Int)
         return AnyValue::make<cl_int>(av.i);
 
@@ -595,45 +595,52 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                              cl_context context, cl_command_queue queue)
 {
     cl_int overall = CL_SUCCESS;
-    log_info("float\n");
-    for (std::size_t i = 0; i < count; ++i)
+    if (gTestFloat)
     {
-        auto aec = cases[i];
-        if (gIsEmbedded)
+        log_info("float test\n");
+        for (std::size_t i = 0; i < count; ++i)
         {
-            if (aec.requires_denorm && !(gFloatCapabilities & CL_FP_DENORM))
+            auto &aec = cases[i];
+            if (gIsEmbedded)
             {
-                log_info("SKIP (no CL_FP_DENORM): %s\n", aec.func_name);
-                continue;
+                if (aec.requires_denorm && !(gFloatCapabilities & CL_FP_DENORM))
+                {
+                    log_info("SKIP (no CL_FP_DENORM): %s\n", aec.func_name);
+                    continue;
+                }
+
+                if (aec.requires_inf_nan
+                    && !(gFloatCapabilities & CL_FP_INF_NAN))
+                {
+                    log_info("SKIP (no CL_FP_INF_NAN): %s\n", aec.func_name);
+                    continue;
+                }
+
+                if (aec.requires_rte
+                    && !(gFloatCapabilities & CL_FP_ROUND_TO_NEAREST))
+                {
+                    log_info("SKIP (no CL_FP_ROUND_TO_NEAREST): %s\n",
+                             aec.func_name);
+                    continue;
+                }
             }
 
-            if (aec.requires_inf_nan && !(gFloatCapabilities & CL_FP_INF_NAN))
-            {
-                log_info("SKIP (no CL_FP_INF_NAN): %s\n", aec.func_name);
-                continue;
-            }
+            EdgeCaseSpec ec = make_edge_case<cl_float>(aec);
 
-            if (aec.requires_rte
-                && !(gFloatCapabilities & CL_FP_ROUND_TO_NEAREST))
-            {
-                log_info("SKIP (no CL_FP_ROUND_TO_NEAREST): %s\n",
-                         aec.func_name);
-                continue;
-            }
+            if (run_edge_case<cl_float>(ec, context, queue) != CL_SUCCESS)
+                overall = -1;
         }
-
-        EdgeCaseSpec ec = make_edge_case<cl_float>(aec);
-
-        if (run_edge_case<cl_float>(ec, context, queue) != CL_SUCCESS)
-            overall = -1;
     }
+    else
+        log_info("skipping float test\n");
+
 
     if (gHasHalf)
     {
         log_info("half\n");
         for (std::size_t i = 0; i < count; ++i)
         {
-            auto aec = cases[i];
+            auto &aec = cases[i];
             if (aec.requires_denorm && !(gHalfCapabilities & CL_FP_DENORM))
             {
                 log_info("SKIP fp16 (no CL_FP_DENORM): %s\n", aec.func_name);
@@ -660,13 +667,15 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                 overall = -1;
         }
     }
+    else
+        log_info("skipping half test\n");
 
     if (gHasDouble)
     {
         log_info("double\n");
         for (std::size_t i = 0; i < count; ++i)
         {
-            auto aec = cases[i];
+            auto &aec = cases[i];
 
             if (aec.requires_denorm && !(gDoubleCapabilities & CL_FP_DENORM))
             {
@@ -694,6 +703,8 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                 overall = -1;
         }
     }
+    else
+        log_info("skipping double test\n");
 
     return overall;
 }
@@ -702,6 +713,11 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
 
 REGISTER_TEST(math_edge_cases)
 {
+    if (gSkipCorrectnessTesting)
+    {
+        log_info("Skipping math_edge_cases test\n");
+        return TEST_SKIPPED_ITSELF;
+    }
     return run_edge_cases(
         edge_case_table, sizeof(edge_case_table) / sizeof((edge_case_table)[0]),
         gContext, gQueue);
