@@ -600,7 +600,7 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
         log_info("float test\n");
         for (std::size_t i = 0; i < count; ++i)
         {
-            auto &aec = cases[i];
+            const auto &aec = cases[i];
             if (gIsEmbedded)
             {
                 if (aec.requires_denorm && !(gFloatCapabilities & CL_FP_DENORM))
@@ -625,7 +625,7 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                 }
             }
 
-            EdgeCaseSpec ec = make_edge_case<cl_float>(aec);
+            const EdgeCaseSpec ec = make_edge_case<cl_float>(aec);
 
             if (run_edge_case<cl_float>(ec, context, queue) != CL_SUCCESS)
                 overall = -1;
@@ -640,7 +640,7 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
         log_info("half\n");
         for (std::size_t i = 0; i < count; ++i)
         {
-            auto &aec = cases[i];
+            const auto &aec = cases[i];
             if (aec.requires_denorm && !(gHalfCapabilities & CL_FP_DENORM))
             {
                 log_info("SKIP fp16 (no CL_FP_DENORM): %s\n", aec.func_name);
@@ -661,7 +661,7 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                 continue;
             }
 
-            EdgeCaseSpec ec = make_edge_case<cl_half>(aec);
+            const EdgeCaseSpec ec = make_edge_case<cl_half>(aec);
 
             if (run_edge_case<cl_half>(ec, context, queue) != CL_SUCCESS)
                 overall = -1;
@@ -675,7 +675,7 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
         log_info("double\n");
         for (std::size_t i = 0; i < count; ++i)
         {
-            auto &aec = cases[i];
+            const auto &aec = cases[i];
 
             if (aec.requires_denorm && !(gDoubleCapabilities & CL_FP_DENORM))
             {
@@ -697,7 +697,7 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                 continue;
             }
 
-            EdgeCaseSpec ec = make_edge_case<cl_double>(aec);
+            const EdgeCaseSpec ec = make_edge_case<cl_double>(aec);
 
             if (run_edge_case<cl_double>(ec, context, queue) != CL_SUCCESS)
                 overall = -1;
