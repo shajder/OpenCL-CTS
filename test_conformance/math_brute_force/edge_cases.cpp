@@ -105,6 +105,9 @@ struct EdgeCaseSpec
     bool expect_nan = false;
 };
 
+std::vector<EdgeCaseSpec> batch_cases;
+std::string kernel_src;
+
 struct AbstractValue
 {
     enum class Kind
@@ -320,33 +323,6 @@ static const AbstractEdgeCase edge_case_table[] = {
     { "trunc", { AV_F(-0.25) }, NEG_ZERO, false, false, false, true },
 };
 
-inline std::string build_kernel_source(const EdgeCaseSpec &ec)
-{
-    std::string s;
-    s += "__kernel void test_edge_case(\n";
-    s += "    __global ";
-    s += ec.expected.cl_type;
-    s += " *out";
-    for (std::size_t i = 0; i < ec.inputs.size(); ++i)
-    {
-        s += ",\n    __global const ";
-        s += ec.inputs[i].cl_type;
-        s += " *in";
-        s += std::to_string(i);
-    }
-    s += ")\n{\n    *out = ";
-    s += ec.func_name;
-    s += "(";
-    for (std::size_t i = 0; i < ec.inputs.size(); ++i)
-    {
-        if (i) s += ", ";
-        s += "*in";
-        s += std::to_string(i);
-    }
-    s += ");\n}\n";
-    return s;
-}
-
 void log_anyvalue(const AnyValue &v)
 {
     const std::size_t elem = [&] {
@@ -382,12 +358,52 @@ void log_anyvalue(const AnyValue &v)
     }
 }
 
-template <typename T>
-inline cl_int run_edge_case(const EdgeCaseSpec &ec, cl_context context,
-                            cl_command_queue queue)
+inline void accumulate_edge_case(const EdgeCaseSpec &ec)
 {
+    std::string &src = kernel_src;
+    std::size_t ind = batch_cases.size();
     // Build kernel
-    std::string src = build_kernel_source(ec);
+    if (src.empty())
+    {
+        src += "__kernel void test_edge_case(\n";
+        src += "    __global ";
+        src += ec.expected.cl_type;
+        src += " *out";
+        for (std::size_t i = 0; i < ec.inputs.size(); ++i)
+        {
+            src += ",\n    __global const ";
+            src += ec.inputs[i].cl_type;
+            src += " *in";
+            src += std::to_string(i);
+        }
+        src += ")\n{";
+    }
+
+    src += "\n    out[";
+    src += std::to_string(ind);
+    src += "] = ";
+    src += ec.func_name;
+    src += "(";
+
+    for (std::size_t i = 0; i < ec.inputs.size(); ++i)
+    {
+        if (i) src += ", ";
+        src += "in";
+        src += std::to_string(i);
+        src += "[";
+        src += std::to_string(ind);
+        src += "]";
+    }
+    src += ");";
+
+    batch_cases.push_back(ec);
+}
+
+template <typename T>
+inline cl_int run_accumulated_cases(cl_context context, cl_command_queue queue)
+{
+    std::string &src = kernel_src;
+    src += "\n}\n";
     if constexpr (std::is_same_v<T, cl_half>)
         src = std::string("#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n")
             + src;
@@ -402,44 +418,59 @@ inline cl_int run_edge_case(const EdgeCaseSpec &ec, cl_context context,
                                     "test_edge_case"))
     {
         log_error("ERROR: Failed to build kernel for '%s'\nSource:\n%s\n",
-                  ec.func_name, src.c_str());
+                  batch_cases.front().func_name, src.c_str());
         return TEST_FAIL;
     }
 
     cl_int err = CL_SUCCESS;
 
     clMemWrapper out_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
-                                          ec.expected.byte_size, nullptr, &err);
+                                          batch_cases.front().expected.byte_size
+                                              * batch_cases.size(),
+                                          nullptr, &err);
     if (err != CL_SUCCESS)
     {
         log_error("ERROR: clCreateBuffer (out) failed for '%s': %d\n",
-                  ec.func_name, err);
+                  batch_cases.front().func_name, err);
         return TEST_FAIL;
     }
 
     std::vector<clMemWrapper> in_bufs;
-    in_bufs.reserve(ec.inputs.size());
+    in_bufs.reserve(batch_cases.front().inputs.size());
 
-    for (std::size_t i = 0; i < ec.inputs.size(); ++i)
+    for (std::size_t i = 0; i < batch_cases.front().inputs.size(); ++i)
     {
         cl_mem buf = clCreateBuffer(context, CL_MEM_READ_ONLY,
-                                    ec.inputs[i].byte_size, nullptr, &err);
+                                    batch_cases.front().inputs[i].byte_size
+                                        * batch_cases.size(),
+                                    nullptr, &err);
         if (err != CL_SUCCESS)
         {
             log_error("ERROR: clCreateBuffer (in%zu) failed for '%s': %d\n", i,
-                      ec.func_name, err);
+                      batch_cases.front().func_name, err);
             return TEST_FAIL;
         }
         in_bufs.push_back(buf);
 
-        err =
-            clEnqueueWriteBuffer(queue, buf, CL_TRUE, 0, ec.inputs[i].byte_size,
-                                 ec.inputs[i].data.data(), 0, nullptr, nullptr);
+        static std::vector<uint8_t> inData;
+        inData.resize(batch_cases.front().inputs[i].byte_size
+                      * batch_cases.size());
+
+        size_t byte_offset = 0;
+        for (auto &elem : batch_cases)
+        {
+            std::memcpy(&inData[byte_offset], elem.inputs[i].data.data(),
+                        elem.inputs[i].byte_size);
+            byte_offset += elem.inputs[i].byte_size;
+        }
+
+        err = clEnqueueWriteBuffer(queue, buf, CL_TRUE, 0, inData.size(),
+                                   inData.data(), 0, nullptr, nullptr);
         if (err != CL_SUCCESS)
         {
             log_error("ERROR: clEnqueueWriteBuffer (in%zu) failed for"
                       " '%s': %d\n",
-                      i, ec.func_name, err);
+                      i, batch_cases.front().func_name, err);
             return TEST_FAIL;
         }
     }
@@ -449,8 +480,8 @@ inline cl_int run_edge_case(const EdgeCaseSpec &ec, cl_context context,
         err |= clSetKernelArg(kernel, i + 1, sizeof(cl_mem), &in_bufs[i]);
     if (err != CL_SUCCESS)
     {
-        log_error("ERROR: clSetKernelArg failed for '%s': %d\n", ec.func_name,
-                  err);
+        log_error("ERROR: clSetKernelArg failed for '%s': %d\n",
+                  batch_cases.front().func_name, err);
         return TEST_FAIL;
     }
 
@@ -461,64 +492,76 @@ inline cl_int run_edge_case(const EdgeCaseSpec &ec, cl_context context,
         if (err != CL_SUCCESS)
         {
             log_error("ERROR: clEnqueueNDRangeKernel failed for '%s': %d\n",
-                      ec.func_name, err);
+                      batch_cases.front().func_name, err);
             return TEST_FAIL;
         }
     }
 
     {
-        std::array<uint8_t, CL_VALUE_MAX_BYTES> result{};
+        static std::vector<uint8_t> result;
+        result.resize(batch_cases.front().expected.byte_size
+                      * batch_cases.size());
         err = clEnqueueReadBuffer(queue, out_buf, CL_TRUE, 0,
-                                  ec.expected.byte_size, result.data(), 0,
-                                  nullptr, nullptr);
+                                  batch_cases.front().expected.byte_size
+                                      * batch_cases.size(),
+                                  result.data(), 0, nullptr, nullptr);
         if (err != CL_SUCCESS)
         {
             log_error("ERROR: clEnqueueReadBuffer failed for '%s': %d\n",
-                      ec.func_name, err);
+                      batch_cases.front().func_name, err);
             return TEST_FAIL;
         }
 
-        if (ec.expect_nan)
+        size_t byte_offset = 0;
+        for (const auto &ec : batch_cases)
         {
-            AnyValue got;
-            got.byte_size = ec.expected.byte_size;
-            std::memcpy(got.data.data(), result.data(), got.byte_size);
-            if (!got.all_elements_nan<T>())
+            if (ec.expect_nan)
             {
-                log_error("FAIL: %s(", ec.func_name);
-                for (std::size_t i = 0; i < ec.inputs.size(); ++i)
+                AnyValue got;
+                got.byte_size = ec.expected.byte_size;
+                std::memcpy(got.data.data(), &result[byte_offset],
+                            got.byte_size);
+                if (!got.all_elements_nan<T>())
                 {
-                    if (i) log_error(", ");
-                    log_anyvalue(ec.inputs[i]);
+                    log_error("FAIL: %s(", ec.func_name);
+                    for (std::size_t i = 0; i < ec.inputs.size(); ++i)
+                    {
+                        if (i) log_error(", ");
+                        log_anyvalue(ec.inputs[i]);
+                    }
+                    log_error(") - expected NaN, got 0x");
+
+                    for (std::size_t i = ec.expected.byte_size; i !=0; --i)
+                        log_error("%02x", result[byte_offset + i - 1]);
+                    log_error("\n");
+                    err = -1;
                 }
-                log_error(") - expected NaN, got 0x");
-                for (std::size_t i = 0; i < ec.expected.byte_size; ++i)
-                    log_error("%02x", result[i]);
-                log_error("\n");
-                err = -1;
             }
-        }
-        else
-        {
-            if (std::memcmp(result.data(), ec.expected.data.data(),
-                            ec.expected.byte_size)
-                != 0)
+            else
             {
-                log_error("FAIL: %s(", ec.func_name);
-                for (std::size_t i = 0; i < ec.inputs.size(); ++i)
+                if (std::memcmp(&result[byte_offset], ec.expected.data.data(),
+                                ec.expected.byte_size)
+                    != 0)
                 {
-                    if (i) log_error(", ");
-                    log_anyvalue(ec.inputs[i]);
+                    log_error("FAIL: %s(", ec.func_name);
+                    for (std::size_t i = 0; i < ec.inputs.size(); ++i)
+                    {
+                        if (i) log_error(", ");
+                        log_anyvalue(ec.inputs[i]);
+                    }
+
+                    log_error(") - expected ");
+                    log_anyvalue(ec.expected);
+
+                    log_error(", got 0x");
+                    for (std::size_t i = ec.expected.byte_size; i !=0; --i)
+                        log_error("%02x", result[byte_offset + i - 1]);
+                    log_error("\n");
+                    err = -1;
                 }
-                log_error(") - expected 0x");
-                for (std::size_t i = 0; i < ec.expected.byte_size; ++i)
-                    log_error("%02x", ec.expected.data[i]);
-                log_error(", got 0x");
-                for (std::size_t i = 0; i < ec.expected.byte_size; ++i)
-                    log_error("%02x", result[i]);
-                log_error("\n");
-                err = -1;
             }
+
+            byte_offset += ec.expected.byte_size;
         }
     }
 
@@ -591,6 +634,23 @@ template <typename T> EdgeCaseSpec make_edge_case(const AbstractEdgeCase &aec)
     return ec;
 }
 
+template <typename T>
+cl_int flush_group (const AbstractEdgeCase *cases, std::size_t count,
+                      cl_context context, cl_command_queue queue, std::size_t i)
+{
+    cl_int ret=0;
+    if (!batch_cases.empty() &&
+        ((i == count - 1) ||
+         std::strcmp(cases[i].func_name, cases[i+1].func_name) != 0))
+    {
+        if (run_accumulated_cases<T>(context, queue) != CL_SUCCESS)
+            ret = -1;
+        batch_cases.clear();
+        kernel_src.clear();
+    }
+    return ret;
+}
+
 inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                              cl_context context, cl_command_queue queue)
 {
@@ -598,22 +658,24 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
     if (gTestFloat)
     {
         log_info("float test\n");
+
         for (std::size_t i = 0; i < count; ++i)
         {
             const auto &aec = cases[i];
+            bool skip=false;
             if (gIsEmbedded)
             {
                 if (aec.requires_denorm && !(gFloatCapabilities & CL_FP_DENORM))
                 {
                     log_info("SKIP (no CL_FP_DENORM): %s\n", aec.func_name);
-                    continue;
+                    skip=true;
                 }
 
                 if (aec.requires_inf_nan
                     && !(gFloatCapabilities & CL_FP_INF_NAN))
                 {
                     log_info("SKIP (no CL_FP_INF_NAN): %s\n", aec.func_name);
-                    continue;
+                    skip=true;
                 }
 
                 if (aec.requires_rte
@@ -621,13 +683,17 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                 {
                     log_info("SKIP (no CL_FP_ROUND_TO_NEAREST): %s\n",
                              aec.func_name);
-                    continue;
+                    skip=true;
                 }
             }
 
-            const EdgeCaseSpec ec = make_edge_case<cl_float>(aec);
+            if(!skip)
+            {
+                const EdgeCaseSpec ec = make_edge_case<cl_float>(aec);
+                accumulate_edge_case(ec);
+            }
 
-            if (run_edge_case<cl_float>(ec, context, queue) != CL_SUCCESS)
+            if(flush_group<cl_float>(cases, count, context, queue, i)!=CL_SUCCESS)
                 overall = -1;
         }
     }
@@ -641,16 +707,17 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
         for (std::size_t i = 0; i < count; ++i)
         {
             const auto &aec = cases[i];
+            bool skip=false;
             if (aec.requires_denorm && !(gHalfCapabilities & CL_FP_DENORM))
             {
                 log_info("SKIP fp16 (no CL_FP_DENORM): %s\n", aec.func_name);
-                continue;
+                skip=true;
             }
 
             if (aec.requires_inf_nan && !(gHalfCapabilities & CL_FP_INF_NAN))
             {
                 log_info("SKIP fp16 (no CL_FP_INF_NAN): %s\n", aec.func_name);
-                continue;
+                skip=true;
             }
 
             if (aec.requires_rte
@@ -658,12 +725,17 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
             {
                 log_info("SKIP fp16 (no CL_FP_ROUND_TO_NEAREST): %s\n",
                          aec.func_name);
-                continue;
+                skip=true;
             }
 
-            const EdgeCaseSpec ec = make_edge_case<cl_half>(aec);
+            if (!skip)
+            {
+                const EdgeCaseSpec ec = make_edge_case<cl_half>(aec);
+                accumulate_edge_case(ec);
+            }
 
-            if (run_edge_case<cl_half>(ec, context, queue) != CL_SUCCESS)
+            if (flush_group<cl_half>(cases, count, context, queue, i)
+                != CL_SUCCESS)
                 overall = -1;
         }
     }
@@ -676,17 +748,17 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
         for (std::size_t i = 0; i < count; ++i)
         {
             const auto &aec = cases[i];
-
+            bool skip=false;
             if (aec.requires_denorm && !(gDoubleCapabilities & CL_FP_DENORM))
             {
                 log_info("SKIP fp64 (no CL_FP_DENORM): %s\n", aec.func_name);
-                continue;
+                skip=true;
             }
 
             if (aec.requires_inf_nan && !(gDoubleCapabilities & CL_FP_INF_NAN))
             {
                 log_info("SKIP fp64 (no CL_FP_INF_NAN): %s\n", aec.func_name);
-                continue;
+                skip=true;
             }
 
             if (aec.requires_rte
@@ -694,12 +766,16 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
             {
                 log_info("SKIP fp64 (no CL_FP_ROUND_TO_NEAREST): %s\n",
                          aec.func_name);
-                continue;
+                skip=true;
             }
 
-            const EdgeCaseSpec ec = make_edge_case<cl_double>(aec);
+            if(!skip)
+            {
+                const EdgeCaseSpec ec = make_edge_case<cl_double>(aec);
+                accumulate_edge_case(ec);
+            }
 
-            if (run_edge_case<cl_double>(ec, context, queue) != CL_SUCCESS)
+            if(flush_group<cl_double>(cases, count, context, queue, i)!=CL_SUCCESS)
                 overall = -1;
         }
     }
