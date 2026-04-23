@@ -531,7 +531,7 @@ inline cl_int run_accumulated_cases(cl_context context, cl_command_queue queue)
                     }
                     log_error(") - expected NaN, got 0x");
 
-                    for (std::size_t i = ec.expected.byte_size; i !=0; --i)
+                    for (std::size_t i = ec.expected.byte_size; i != 0; --i)
                         log_error("%02x", result[byte_offset + i - 1]);
                     log_error("\n");
                     err = -1;
@@ -554,7 +554,7 @@ inline cl_int run_accumulated_cases(cl_context context, cl_command_queue queue)
                     log_anyvalue(ec.expected);
 
                     log_error(", got 0x");
-                    for (std::size_t i = ec.expected.byte_size; i !=0; --i)
+                    for (std::size_t i = ec.expected.byte_size; i != 0; --i)
                         log_error("%02x", result[byte_offset + i - 1]);
                     log_error("\n");
                     err = -1;
@@ -635,16 +635,15 @@ template <typename T> EdgeCaseSpec make_edge_case(const AbstractEdgeCase &aec)
 }
 
 template <typename T>
-cl_int flush_group (const AbstractEdgeCase *cases, std::size_t count,
-                      cl_context context, cl_command_queue queue, std::size_t i)
+cl_int flush_group(const AbstractEdgeCase *cases, std::size_t count,
+                   cl_context context, cl_command_queue queue, std::size_t i)
 {
-    cl_int ret=0;
-    if (!batch_cases.empty() &&
-        ((i == count - 1) ||
-         std::strcmp(cases[i].func_name, cases[i+1].func_name) != 0))
+    cl_int ret = 0;
+    if (!batch_cases.empty()
+        && ((i == count - 1)
+            || std::strcmp(cases[i].func_name, cases[i + 1].func_name) != 0))
     {
-        if (run_accumulated_cases<T>(context, queue) != CL_SUCCESS)
-            ret = -1;
+        if (run_accumulated_cases<T>(context, queue) != CL_SUCCESS) ret = -1;
         batch_cases.clear();
         kernel_src.clear();
     }
@@ -662,20 +661,20 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
         for (std::size_t i = 0; i < count; ++i)
         {
             const auto &aec = cases[i];
-            bool skip=false;
+            bool skip = false;
             if (gIsEmbedded)
             {
                 if (aec.requires_denorm && !(gFloatCapabilities & CL_FP_DENORM))
                 {
                     log_info("SKIP (no CL_FP_DENORM): %s\n", aec.func_name);
-                    skip=true;
+                    skip = true;
                 }
 
                 if (aec.requires_inf_nan
                     && !(gFloatCapabilities & CL_FP_INF_NAN))
                 {
                     log_info("SKIP (no CL_FP_INF_NAN): %s\n", aec.func_name);
-                    skip=true;
+                    skip = true;
                 }
 
                 if (aec.requires_rte
@@ -683,17 +682,18 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
                 {
                     log_info("SKIP (no CL_FP_ROUND_TO_NEAREST): %s\n",
                              aec.func_name);
-                    skip=true;
+                    skip = true;
                 }
             }
 
-            if(!skip)
+            if (!skip)
             {
                 const EdgeCaseSpec ec = make_edge_case<cl_float>(aec);
                 accumulate_edge_case(ec);
             }
 
-            if(flush_group<cl_float>(cases, count, context, queue, i)!=CL_SUCCESS)
+            if (flush_group<cl_float>(cases, count, context, queue, i)
+                != CL_SUCCESS)
                 overall = -1;
         }
     }
@@ -707,17 +707,17 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
         for (std::size_t i = 0; i < count; ++i)
         {
             const auto &aec = cases[i];
-            bool skip=false;
+            bool skip = false;
             if (aec.requires_denorm && !(gHalfCapabilities & CL_FP_DENORM))
             {
                 log_info("SKIP fp16 (no CL_FP_DENORM): %s\n", aec.func_name);
-                skip=true;
+                skip = true;
             }
 
             if (aec.requires_inf_nan && !(gHalfCapabilities & CL_FP_INF_NAN))
             {
                 log_info("SKIP fp16 (no CL_FP_INF_NAN): %s\n", aec.func_name);
-                skip=true;
+                skip = true;
             }
 
             if (aec.requires_rte
@@ -725,7 +725,7 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
             {
                 log_info("SKIP fp16 (no CL_FP_ROUND_TO_NEAREST): %s\n",
                          aec.func_name);
-                skip=true;
+                skip = true;
             }
 
             if (!skip)
@@ -748,17 +748,17 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
         for (std::size_t i = 0; i < count; ++i)
         {
             const auto &aec = cases[i];
-            bool skip=false;
+            bool skip = false;
             if (aec.requires_denorm && !(gDoubleCapabilities & CL_FP_DENORM))
             {
                 log_info("SKIP fp64 (no CL_FP_DENORM): %s\n", aec.func_name);
-                skip=true;
+                skip = true;
             }
 
             if (aec.requires_inf_nan && !(gDoubleCapabilities & CL_FP_INF_NAN))
             {
                 log_info("SKIP fp64 (no CL_FP_INF_NAN): %s\n", aec.func_name);
-                skip=true;
+                skip = true;
             }
 
             if (aec.requires_rte
@@ -766,16 +766,17 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
             {
                 log_info("SKIP fp64 (no CL_FP_ROUND_TO_NEAREST): %s\n",
                          aec.func_name);
-                skip=true;
+                skip = true;
             }
 
-            if(!skip)
+            if (!skip)
             {
                 const EdgeCaseSpec ec = make_edge_case<cl_double>(aec);
                 accumulate_edge_case(ec);
             }
 
-            if(flush_group<cl_double>(cases, count, context, queue, i)!=CL_SUCCESS)
+            if (flush_group<cl_double>(cases, count, context, queue, i)
+                != CL_SUCCESS)
                 overall = -1;
         }
     }
