@@ -378,6 +378,10 @@ inline void accumulate_edge_case(const EdgeCaseSpec &ec)
         }
         src += ")\n{";
     }
+    else
+    {
+        assert(batch_cases.front().inputs.size() == ec.inputs.size());
+    }
 
     src += "\n    out[";
     src += std::to_string(ind);
@@ -457,7 +461,7 @@ inline cl_int run_accumulated_cases(cl_context context, cl_command_queue queue)
                       * batch_cases.size());
 
         size_t byte_offset = 0;
-        for (auto &elem : batch_cases)
+        for (const auto &elem : batch_cases)
         {
             std::memcpy(&inData[byte_offset], elem.inputs[i].data.data(),
                         elem.inputs[i].byte_size);
@@ -656,7 +660,11 @@ inline cl_int run_edge_cases(const AbstractEdgeCase *cases, std::size_t count,
     cl_int overall = CL_SUCCESS;
     if (gTestFloat)
     {
-        log_info("float test\n");
+        log_info("float\n");
+
+        // Iterate over edge cases, grouping those with the same function name
+        // into a single kernel call to avoid per-case build overhead. The same
+        // pattern is applied for all three floating point precisions.
 
         for (std::size_t i = 0; i < count; ++i)
         {
