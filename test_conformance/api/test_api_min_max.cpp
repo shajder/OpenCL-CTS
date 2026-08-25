@@ -19,7 +19,6 @@
 #include <ctype.h>
 #include <string.h>
 #include <cinttypes>
-#include <cstring>
 
 const char *sample_single_param_kernel[] = {
     "__kernel void sample_test(__global int *src)\n"
@@ -1414,8 +1413,8 @@ REGISTER_TEST(min_max_samplers)
 
     if (checkForImageSupport(device))
     {
-        test_failure_error_ret(
-            maxSamplers, 0,
+        test_assert_error_ret(
+            maxSamplers == 0,
             "Missing image support but CL_DEVICE_MAX_SAMPLERS query "
             "did not return 0",
             TEST_FAIL);
