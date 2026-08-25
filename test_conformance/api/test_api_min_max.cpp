@@ -1449,47 +1449,25 @@ REGISTER_TEST(min_max_samplers)
     }
 
     /* Create a kernel to test with */
-    std::vector<char> programSrc(
-        (strlen(sample_sampler_kernel_pattern[1]) + 8) * (maxSamplers)
-            + strlen(sample_sampler_kernel_pattern[0])
-            + strlen(sample_sampler_kernel_pattern[2])
-            + (strlen(sample_sampler_kernel_pattern[3]) + 8) * maxSamplers
-            + strlen(sample_sampler_kernel_pattern[4]),
-        0);
-    std::strncpy(programSrc.data(), sample_sampler_kernel_pattern[0],
-                 programSrc.size() - 1);
-    size_t remaining = 0;
+    std::string programSrc = sample_sampler_kernel_pattern[0];
     for (i = 0; i < maxSamplers; i++)
     {
-        sprintf(samplerLine, sample_sampler_kernel_pattern[1], i);
-        remaining = programSrc.size() - std::strlen(programSrc.data()) - 1;
-        test_assert_error_ret(std::strlen(samplerLine) <= remaining,
-                              "Kernel source buffer too small", TEST_FAIL);
-        std::strncat(programSrc.data(), samplerLine, remaining);
+        snprintf(samplerLine, sizeof(samplerLine),
+                 sample_sampler_kernel_pattern[1], i);
+        programSrc += samplerLine;
     }
 
-    remaining = programSrc.size() - std::strlen(programSrc.data()) - 1;
-    test_assert_error_ret(strlen(sample_sampler_kernel_pattern[2]) <= remaining,
-                          "Kernel source buffer too small", TEST_FAIL);
-    std::strncat(programSrc.data(), sample_sampler_kernel_pattern[2],
-                 remaining);
+    programSrc += sample_sampler_kernel_pattern[2];
 
     for (i = 0; i < maxSamplers; i++)
     {
-        sprintf(samplerLine, sample_sampler_kernel_pattern[3], i);
-        remaining = programSrc.size() - std::strlen(programSrc.data()) - 1;
-        test_assert_error_ret(std::strlen(samplerLine) <= remaining,
-                              "Kernel source buffer too small", TEST_FAIL);
-        std::strncat(programSrc.data(), samplerLine, remaining);
+        snprintf(samplerLine, sizeof(samplerLine),
+                 sample_sampler_kernel_pattern[3], i);
+        programSrc += samplerLine;
     }
 
-    remaining = programSrc.size() - std::strlen(programSrc.data()) - 1;
-    test_assert_error_ret(strlen(sample_sampler_kernel_pattern[4]) <= remaining,
-                          "Kernel source buffer too small", TEST_FAIL);
-    std::strncat(programSrc.data(), sample_sampler_kernel_pattern[4],
-                 remaining);
-
-    const char *src = programSrc.data();
+    programSrc += sample_sampler_kernel_pattern[4];
+    const char *src = programSrc.c_str();
     error = create_single_kernel_helper(context, &program, &kernel, 1, &src,
                                         "sample_test");
     test_error(error, "Failed to create the program and kernel.");
