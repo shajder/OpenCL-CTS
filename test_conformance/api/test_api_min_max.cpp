@@ -16,7 +16,6 @@
 #include "testBase.h"
 #include "harness/typeWrappers.h"
 #include "harness/testHarness.h"
-#include <cstring>
 #include <ctype.h>
 #include <string.h>
 #include <cinttypes>
@@ -293,8 +292,8 @@ REGISTER_TEST(min_max_read_image_args)
                                 sizeof(maxReadImages), &maxReadImages, NULL);
         test_error(error, "Unable to get max read image arg count from device");
 
-        test_failure_error_ret(
-            maxReadImages, 0,
+        test_assert_error_ret(
+            maxReadImages == 0,
             "Missing image support but CL_DEVICE_MAX_READ_IMAGE_ARGS query did "
             "not return 0",
             TEST_FAIL);
@@ -355,35 +354,29 @@ REGISTER_TEST(min_max_read_image_args)
     }
 
     /* Create a program with that many read args */
-    std::vector<char> programSrc(
-        strlen(sample_read_image_kernel_pattern[0])
-            + (strlen(readArgPattern) + 6) * (maxReadImages)
-            + strlen(sample_read_image_kernel_pattern[1]) + 1 + 40240,
-        0);
+    std::string programSrc = sample_read_image_kernel_pattern[0];
+    programSrc += "read_only image2d_t srcimg0";
 
-    std::strncpy(programSrc.data(), sample_read_image_kernel_pattern[0],
-                 programSrc.size());
-    std::strncat(programSrc.data(), "read_only image2d_t srcimg0",
-                 programSrc.size());
     for (i = 0; i < maxReadImages - 1; i++)
     {
-        sprintf(readArgLine, readArgPattern, i + 1);
-        std::strncat(programSrc.data(), readArgLine, programSrc.size());
+        snprintf(readArgLine, sizeof(readArgLine), readArgPattern, i + 1);
+        programSrc += readArgLine;
     }
-    std::strncat(programSrc.data(), sample_read_image_kernel_pattern[1],
-                 programSrc.size());
+
+    programSrc += sample_read_image_kernel_pattern[1];
+
     for (i = 0; i < maxReadImages; i++)
     {
-        sprintf(readArgLine,
-                "\tresult[0] += read_imagef( srcimg%d, sampler, "
-                "(int2)(0,0)).x;\n",
-                i);
-        std::strncat(programSrc.data(), readArgLine, programSrc.size());
+        snprintf(readArgLine, sizeof(readArgLine),
+                 "\tresult[0] += read_imagef( srcimg%d, sampler, "
+                 "(int2)(0,0)).x;\n",
+                 i);
+        programSrc += readArgLine;
     }
-    std::strncat(programSrc.data(), sample_read_image_kernel_pattern[2],
-                 programSrc.size());
 
-    const char *prog_data = programSrc.data();
+    programSrc += sample_read_image_kernel_pattern[2];
+
+    const char *prog_data = programSrc.c_str();
     error =
         create_single_kernel_helper(context, &program, &kernel, 1,
                                     (const char **)&prog_data, "sample_test");
@@ -469,11 +462,11 @@ REGISTER_TEST(min_max_write_image_args)
         test_error(error,
                    "Unable to get max write image arg count from device");
 
-        test_failure_error_ret(maxWriteImages, 0,
-                               "Missing image support but "
-                               "CL_DEVICE_MAX_WRITE_IMAGE_ARGS query did "
-                               "not return 0",
-                               TEST_FAIL);
+        test_assert_error_ret(maxWriteImages == 0,
+                              "Missing image support but "
+                              "CL_DEVICE_MAX_WRITE_IMAGE_ARGS query did "
+                              "not return 0",
+                              TEST_FAIL);
         return TEST_SKIPPED_ITSELF;
     }
 
@@ -521,34 +514,24 @@ REGISTER_TEST(min_max_write_image_args)
     }
 
     /* Create a program with that many write args + 1 */
-    std::vector<char> programSrc(
-        strlen(sample_write_image_kernel_pattern[0])
-            + (strlen(writeArgPattern) + 6) * (maxWriteImages + 1)
-            + strlen(sample_write_image_kernel_pattern[1]) + 1 + 40240,
-        0);
-
-    std::strncpy(programSrc.data(), sample_write_image_kernel_pattern[0],
-                 programSrc.size());
-    std::strncat(programSrc.data(), "write_only image2d_t dstimg0",
-                 programSrc.size());
+    std::string programSrc = sample_write_image_kernel_pattern[0];
+    programSrc += "write_only image2d_t dstimg0";
     for (i = 1; i < maxWriteImages; i++)
     {
-        sprintf(writeArgLine, writeArgPattern, i);
-        std::strncat(programSrc.data(), writeArgLine, programSrc.size());
+        snprintf(writeArgLine, sizeof(writeArgLine), writeArgPattern, i);
+        programSrc += writeArgLine;
     }
-    std::strncat(programSrc.data(), sample_write_image_kernel_pattern[1],
-                 programSrc.size());
+    programSrc += sample_write_image_kernel_pattern[1];
     for (i = 0; i < maxWriteImages; i++)
     {
-        sprintf(writeArgLine,
-                "\twrite_imagef( dstimg%d, (int2)(0,0), (float4)(0,0,0,0));\n",
-                i);
-        std::strncat(programSrc.data(), writeArgLine, programSrc.size());
+        snprintf(writeArgLine, sizeof(writeArgLine),
+                 "\twrite_imagef( dstimg%d, (int2)(0,0), (float4)(0,0,0,0));\n",
+                 i);
+        programSrc += writeArgLine;
     }
-    std::strncat(programSrc.data(), sample_write_image_kernel_pattern[2],
-                 programSrc.size());
+    programSrc += sample_write_image_kernel_pattern[2];
 
-    const char *prog_data = programSrc.data();
+    const char *prog_data = programSrc.c_str();
     error =
         create_single_kernel_helper(context, &program, &kernel, 1,
                                     (const char **)&prog_data, "sample_test");
@@ -1089,9 +1072,8 @@ REGISTER_TEST(min_max_image_array_size)
     if (!checkForImageSupport(device))
     {
         /* Just get any ol format to test with */
-        error =
-            get_8_bit_image_format(context, CL_MEM_OBJECT_IMAGE2D_ARRAY,
-                                   CL_MEM_READ_WRITE, 0, &imageFormatDesc);
+        error = get_8_bit_image_format(context, CL_MEM_OBJECT_IMAGE2D_ARRAY,
+                                       CL_MEM_READ_WRITE, 0, &imageFormatDesc);
         test_error(error,
                    "Unable to obtain suitable image format to test with!");
 
@@ -1155,11 +1137,12 @@ REGISTER_TEST(min_max_image_array_size)
                                 sizeof(maxDimension), &maxDimension, NULL);
         test_error(error, "Unable to get max image array size from device");
 
-        test_failure_error_ret(
-            maxDimension, 0,
+        test_assert_error_ret(
+            maxDimension == 0,
             "Missing image support but CL_DEVICE_IMAGE_MAX_ARRAY_SIZE  query "
             "did not return 0",
             TEST_FAIL);
+        return TEST_SKIPPED_ITSELF;
     }
 
     return TEST_PASS;
