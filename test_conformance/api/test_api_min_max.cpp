@@ -279,19 +279,19 @@ REGISTER_TEST(min_max_read_image_args)
     cl_image_format imageFormatDesc;
     size_t maxParameterSize;
     cl_int eventStatus;
-    cl_float imageData[4 * 4];
+    cl_float imageData[4 * 4 * 4] = { 0.f };
     float imageResult = 0.0f;
     float actualImageResult;
     cl_uint minRequiredReadImages = gIsEmbedded ? 8 : 128;
     cl_device_type deviceType;
 
+    /* Get the max read image arg count */
+    error = clGetDeviceInfo(device, CL_DEVICE_MAX_READ_IMAGE_ARGS,
+                            sizeof(maxReadImages), &maxReadImages, NULL);
+    test_error(error, "Unable to get max read image arg count from device");
+
     if (checkForImageSupport(device))
     {
-        /* Get the max read image arg count */
-        error = clGetDeviceInfo(device, CL_DEVICE_MAX_READ_IMAGE_ARGS,
-                                sizeof(maxReadImages), &maxReadImages, NULL);
-        test_error(error, "Unable to get max read image arg count from device");
-
         test_assert_error_ret(
             maxReadImages == 0,
             "Missing image support but CL_DEVICE_MAX_READ_IMAGE_ARGS query did "
@@ -302,11 +302,6 @@ REGISTER_TEST(min_max_read_image_args)
 
     imageFormatDesc.image_channel_order = CL_RGBA;
     imageFormatDesc.image_channel_data_type = CL_FLOAT;
-
-    /* Get the max read image arg count */
-    error = clGetDeviceInfo(device, CL_DEVICE_MAX_READ_IMAGE_ARGS,
-                            sizeof(maxReadImages), &maxReadImages, NULL);
-    test_error(error, "Unable to get max read image arg count from device");
 
     if (maxReadImages < minRequiredReadImages)
     {
@@ -386,26 +381,21 @@ REGISTER_TEST(min_max_read_image_args)
                             &error);
     test_error(error, "clCreateBufer failed");
 
+    error = clSetKernelArg(kernel, 0, sizeof(result), &result);
+    test_error(error, "Unable to set kernel arguments");
+
     /* Create some I/O streams */
-    std::vector<clMemWrapper> streams(0);
+    std::vector<clMemWrapper> streams(maxReadImages);
     for (i = 0; i < maxReadImages; i++)
     {
         imageData[0] = i;
         imageResult += imageData[0];
-        streams.push_back(
+        streams[i] =
             create_image_2d(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
-                            &imageFormatDesc, 4, 4, 0, imageData, &error));
+                            &imageFormatDesc, 4, 4, 0, imageData, &error);
         test_error(error, "Unable to allocate test image");
-    }
 
-    error = clSetKernelArg(kernel, 0, sizeof(result), &result);
-    test_error(error, "Unable to set kernel arguments");
-
-    /* Set the arguments */
-    for (i = 1; i < maxReadImages + 1; i++)
-    {
-        error =
-            clSetKernelArg(kernel, i, sizeof(streams[i - 1]), &streams[i - 1]);
+        error = clSetKernelArg(kernel, i + 1, sizeof(streams[i]), &streams[i]);
         test_error(error, "Unable to set kernel arguments");
     }
 
@@ -423,8 +413,7 @@ REGISTER_TEST(min_max_read_image_args)
                            sizeof(eventStatus), &eventStatus, NULL);
     test_error(error,
                "clGetEventInfo for CL_EVENT_COMMAND_EXECUTION_STATUS failed");
-    if (eventStatus < 0)
-        test_error(error, "Kernel execution event returned error");
+    test_error(eventStatus, "Kernel execution event returned error");
 
     error = clEnqueueReadBuffer(queue, result, CL_TRUE, 0, sizeof(cl_float),
                                 &actualImageResult, 0, NULL, NULL);
@@ -454,14 +443,13 @@ REGISTER_TEST(min_max_write_image_args)
     cl_int eventStatus;
     cl_uint minRequiredWriteImages = gIsEmbedded ? 1 : 8;
 
+    /* Get the max write image arg count */
+    error = clGetDeviceInfo(device, CL_DEVICE_MAX_WRITE_IMAGE_ARGS,
+                            sizeof(maxWriteImages), &maxWriteImages, NULL);
+    test_error(error, "Unable to get max write image arg count from device");
+
     if (checkForImageSupport(device))
     {
-        /* Get the max write image arg count */
-        error = clGetDeviceInfo(device, CL_DEVICE_MAX_WRITE_IMAGE_ARGS,
-                                sizeof(maxWriteImages), &maxWriteImages, NULL);
-        test_error(error,
-                   "Unable to get max write image arg count from device");
-
         test_assert_error_ret(maxWriteImages == 0,
                               "Missing image support but "
                               "CL_DEVICE_MAX_WRITE_IMAGE_ARGS query did "
@@ -472,11 +460,6 @@ REGISTER_TEST(min_max_write_image_args)
 
     imageFormatDesc.image_channel_order = CL_RGBA;
     imageFormatDesc.image_channel_data_type = CL_UNORM_INT8;
-
-    /* Get the max write image arg count */
-    error = clGetDeviceInfo(device, CL_DEVICE_MAX_WRITE_IMAGE_ARGS,
-                            sizeof(maxWriteImages), &maxWriteImages, NULL);
-    test_error(error, "Unable to get max write image arg count from device");
 
     if (maxWriteImages == 0)
     {
@@ -538,18 +521,13 @@ REGISTER_TEST(min_max_write_image_args)
     test_error(error, "Failed to create the program and kernel.");
 
     /* Create some I/O streams */
-    std::vector<clMemWrapper> streams(0);
+    std::vector<clMemWrapper> streams(maxWriteImages);
     for (i = 0; i < maxWriteImages; i++)
     {
-        streams.push_back(create_image_2d(context, CL_MEM_READ_WRITE,
-                                          &imageFormatDesc, 16, 16, 0, NULL,
-                                          &error));
+        streams[i] = create_image_2d(context, CL_MEM_READ_WRITE,
+                                     &imageFormatDesc, 16, 16, 0, NULL, &error);
         test_error(error, "Unable to allocate test image");
-    }
 
-    /* Set the arguments */
-    for (i = 0; i < maxWriteImages; i++)
-    {
         error = clSetKernelArg(kernel, i, sizeof(streams[i]), &streams[i]);
         test_error(error, "Unable to set kernel arguments");
     }
@@ -568,8 +546,7 @@ REGISTER_TEST(min_max_write_image_args)
                            sizeof(eventStatus), &eventStatus, NULL);
     test_error(error,
                "clGetEventInfo for CL_EVENT_COMMAND_EXECUTION_STATUS failed");
-    if (eventStatus < 0)
-        test_error(error, "Kernel execution event returned error");
+    test_error(eventStatus, "Kernel execution event returned error");
 
     return TEST_PASS;
 }
@@ -1064,85 +1041,76 @@ REGISTER_TEST(min_max_image_array_size)
 {
     int error;
     size_t maxDimension;
-    clMemWrapper streams;
+    clMemWrapper stream;
     cl_image_format imageFormatDesc;
     cl_ulong maxAllocSize;
     size_t minRequiredDimension = gIsEmbedded ? 256 : 2048;
 
-    if (!checkForImageSupport(device))
+    /* Get the max image array width */
+    error = clGetDeviceInfo(device, CL_DEVICE_IMAGE_MAX_ARRAY_SIZE,
+                            sizeof(maxDimension), &maxDimension, NULL);
+    test_error(error, "Unable to get max image array size from device");
+
+    if (checkForImageSupport(device))
     {
-        /* Just get any ol format to test with */
-        error = get_8_bit_image_format(context, CL_MEM_OBJECT_IMAGE2D_ARRAY,
-                                       CL_MEM_READ_WRITE, 0, &imageFormatDesc);
-        test_error(error,
-                   "Unable to obtain suitable image format to test with!");
-
-        /* Get the max image array width */
-        error = clGetDeviceInfo(device, CL_DEVICE_IMAGE_MAX_ARRAY_SIZE,
-                                sizeof(maxDimension), &maxDimension, NULL);
-        test_error(error, "Unable to get max image array size from device");
-
-        if (maxDimension < minRequiredDimension)
-        {
-            log_error(
-                "ERROR: Reported max image array size is less than required! "
-                "(%d)\n",
-                (int)maxDimension);
-            return TEST_FAIL;
-        }
-        log_info("Max reported image array size is %zu.\n", maxDimension);
-
-        /* Verify we can use the format */
-        imageFormatDesc.image_channel_data_type = CL_UNORM_INT8;
-        imageFormatDesc.image_channel_order = CL_RGBA;
-        if (!is_image_format_supported(context, CL_MEM_READ_ONLY,
-                                       CL_MEM_OBJECT_IMAGE2D_ARRAY,
-                                       &imageFormatDesc))
-        {
-            log_error("CL_UNORM_INT8 CL_RGBA not supported. Can not test.");
-            return TEST_FAIL;
-        }
-
-        /* Verify that we can actually allocate an image that large */
-        maxAllocSize = get_device_info_max_mem_alloc_size(
-            device, MAX_DEVICE_MEMORY_SIZE_DIVISOR);
-        if ((cl_ulong)maxDimension * 1 * 4 > maxAllocSize)
-        {
-            log_error(
-                "Can not allocate a large enough image (min size: %" PRIu64
-                " bytes, max allowed: %" PRIu64 " bytes) to test.\n",
-                (cl_ulong)maxDimension * 1 * 4, maxAllocSize);
-            return TEST_FAIL;
-        }
-
-        log_info("Attempting to create an image of size 1 x 1 x %d = %gMB.\n",
-                 (int)maxDimension,
-                 ((float)maxDimension * 4 / 1024.0 / 1024.0));
-
-        /* Try to allocate a very big image */
-        streams =
-            create_image_2d_array(context, CL_MEM_READ_ONLY, &imageFormatDesc,
-                                  1, 1, maxDimension, 0, 0, NULL, &error);
-        if ((streams == NULL) || (error != CL_SUCCESS))
-        {
-            print_error(
-                error, "2D Image Array creation failed for maximum array size");
-            return TEST_FAIL;
-        }
-    }
-    else
-    {
-        /* Get the max image array width */
-        error = clGetDeviceInfo(device, CL_DEVICE_IMAGE_MAX_ARRAY_SIZE,
-                                sizeof(maxDimension), &maxDimension, NULL);
-        test_error(error, "Unable to get max image array size from device");
-
         test_assert_error_ret(
             maxDimension == 0,
-            "Missing image support but CL_DEVICE_IMAGE_MAX_ARRAY_SIZE  query "
+            "Missing image support but CL_DEVICE_IMAGE_MAX_ARRAY_SIZE query "
             "did not return 0",
             TEST_FAIL);
         return TEST_SKIPPED_ITSELF;
+    }
+
+    /* Just get any ol format to test with */
+    error = get_8_bit_image_format(context, CL_MEM_OBJECT_IMAGE2D_ARRAY,
+                                   CL_MEM_READ_ONLY, 0, &imageFormatDesc);
+    test_error(error, "Unable to obtain suitable image format to test with!");
+
+    if (maxDimension < minRequiredDimension)
+    {
+        log_error("ERROR: Reported max image array size is less than required! "
+                  "(%zu)\n",
+                  maxDimension);
+        return TEST_FAIL;
+    }
+    log_info("Max reported image array size is %zu.\n", maxDimension);
+
+    /* Verify we can use the format */
+    if (!is_image_format_supported(context, CL_MEM_READ_ONLY,
+                                   CL_MEM_OBJECT_IMAGE2D_ARRAY,
+                                   &imageFormatDesc))
+    {
+        log_error(
+            "Selected 8-bit image format is not supported. Can not test.\n");
+        return TEST_FAIL;
+    }
+
+    /* Verify that we can actually allocate an image that large */
+    maxAllocSize = get_device_info_max_mem_alloc_size(
+        device, MAX_DEVICE_MEMORY_SIZE_DIVISOR);
+    const cl_ulong imageSize =
+        (cl_ulong)maxDimension * get_pixel_size(&imageFormatDesc);
+    if (imageSize > maxAllocSize)
+    {
+        log_error("Can not allocate a large enough image (min size: %" PRIu64
+                  " bytes, max allowed: %" PRIu64 " bytes) to test.\n",
+                  imageSize, maxAllocSize);
+        return TEST_FAIL;
+    }
+
+    log_info("Attempting to create an image of size 1 x 1 x %zu, %u bytes per "
+             "pixel (%gMB).\n",
+             maxDimension, get_pixel_size(&imageFormatDesc),
+             (float)imageSize / 1024.0 / 1024.0);
+
+    /* Try to allocate a very big image */
+    stream = create_image_2d_array(context, CL_MEM_READ_ONLY, &imageFormatDesc,
+                                   1, 1, maxDimension, 0, 0, NULL, &error);
+    if ((stream == NULL) || (error != CL_SUCCESS))
+    {
+        print_error(error,
+                    "2D Image Array creation failed for maximum array size");
+        return TEST_FAIL;
     }
 
     return TEST_PASS;
