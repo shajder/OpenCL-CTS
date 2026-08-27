@@ -362,7 +362,6 @@ bool host_atomic_compare_exchange(volatile AtomicType *a, CorrespondingType *exp
                                   TExplicitMemoryOrderType order_success,
                                   TExplicitMemoryOrderType order_failure)
 {
-    CorrespondingType tmp;
     if constexpr (is_host_atomic_fp_v<AtomicType>)
     {
         static std::mutex mtx;
@@ -379,6 +378,7 @@ bool host_atomic_compare_exchange(volatile AtomicType *a, CorrespondingType *exp
     }
     else
     {
+        CorrespondingType tmp;
 #if defined(_MSC_VER) || (defined(__INTEL_COMPILER) && defined(WIN32))
         tmp = InterlockedCompareExchange(a, desired, *expected);
 #elif defined(__GNUC__)
