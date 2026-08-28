@@ -632,7 +632,6 @@ REGISTER_TEST_VERSION(consistency_read_write_images, Version(3, 0))
                               "CL_DEVICE_MAX_READ_WRITE_IMAGE_ARGS query did "
                               "not return 0",
                               TEST_FAIL);
-        return TEST_SKIPPED_ITSELF;
     }
 
     // clGetSupportedImageFormats, passing CL_MEM_KERNEL_READ_AND_WRITE
