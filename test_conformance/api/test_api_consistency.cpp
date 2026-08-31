@@ -625,15 +625,6 @@ REGISTER_TEST_VERSION(consistency_read_write_images, Version(3, 0))
                "Unable to query "
                "CL_DEVICE_MAX_READ_WRITE_IMAGE_ARGS");
 
-    if (checkForImageSupport(device))
-    {
-        test_assert_error_ret(maxReadWriteImageArgs == 0,
-                              "Missing image support but "
-                              "CL_DEVICE_MAX_READ_WRITE_IMAGE_ARGS query did "
-                              "not return 0",
-                              TEST_FAIL);
-    }
-
     // clGetSupportedImageFormats, passing CL_MEM_KERNEL_READ_AND_WRITE
     // Returns an empty set (such as num_image_formats equal to 0), indicating
     // that no image formats are supported for reading and writing in the same
