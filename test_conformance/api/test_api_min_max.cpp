@@ -444,8 +444,9 @@ REGISTER_TEST(min_max_write_image_args)
     size_t maxParameterSize;
     cl_event event;
     cl_int event_status;
-    cl_uint minRequiredWriteImages = gIsEmbedded ? 1 : 8;
-
+    const cl_uint minRequiredWriteImages =
+        get_device_cl_version(device) < Version(2, 0) ? (gIsEmbedded ? 1 : 8)
+                                                      : (gIsEmbedded ? 8 : 64);
 
     PASSIVE_REQUIRE_IMAGE_SUPPORT(device)
     image_format_desc.image_channel_order = CL_RGBA;
