@@ -579,7 +579,9 @@ REGISTER_TEST_VERSION(min_max_read_write_image_args, Version(2, 0))
     cl_image_format imageFormatDesc;
     size_t maxParameterSize;
     cl_int eventStatus;
-    cl_uint minRequiredReadWriteImages = gIsEmbedded ? 8 : 64;
+    const cl_uint minRequiredReadWriteImages =
+        get_device_cl_version(device) < Version(2, 0) ? (gIsEmbedded ? 1 : 8)
+                                                      : (gIsEmbedded ? 8 : 64);
 
     error = clGetDeviceInfo(device, CL_DEVICE_MAX_READ_WRITE_IMAGE_ARGS,
                             sizeof(maxReadWriteImageArgs),
