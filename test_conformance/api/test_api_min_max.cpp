@@ -28,7 +28,7 @@ const char *sample_single_param_kernel[] = {
     "}\n"
 };
 
-const char *sample_read_write_image_kernel_pattern[] = {
+static const char *sample_read_write_image_kernel_pattern[] = {
     "__kernel void sample_test( ",
     " )\n"
     "{\n"
@@ -570,7 +570,7 @@ REGISTER_TEST_VERSION(min_max_read_write_image_args, Version(2, 0))
 {
     cl_float imageData[4 * 4 * 4] = { 0.f };
     int error;
-    unsigned int maxReadWriteImageArgs, i;
+    unsigned int maxReadWriteImageArgs = 0;
     clProgramWrapper program;
     char rwArgLine[256];
     const char *rwArgPattern = ", read_write image2d_t img%d";
@@ -579,9 +579,7 @@ REGISTER_TEST_VERSION(min_max_read_write_image_args, Version(2, 0))
     cl_image_format imageFormatDesc;
     size_t maxParameterSize;
     cl_int eventStatus;
-    const cl_uint minRequiredReadWriteImages =
-        get_device_cl_version(device) < Version(2, 0) ? (gIsEmbedded ? 1 : 8)
-                                                      : (gIsEmbedded ? 8 : 64);
+    const cl_uint minRequiredReadWriteImages = gIsEmbedded ? 8 : 64;
 
     error = clGetDeviceInfo(device, CL_DEVICE_MAX_READ_WRITE_IMAGE_ARGS,
                             sizeof(maxReadWriteImageArgs),
@@ -603,19 +601,17 @@ REGISTER_TEST_VERSION(min_max_read_write_image_args, Version(2, 0))
     imageFormatDesc.image_channel_order = CL_RGBA;
     imageFormatDesc.image_channel_data_type = CL_FLOAT;
 
-    if (maxReadWriteImageArgs == 0)
+    if (get_device_cl_version(device) >= Version(3, 0)
+        && maxReadWriteImageArgs == 0)
     {
-        log_info("WARNING: Device reports 0 for a max read/write image arg "
-                 "count (read/write image arguments unsupported). Skipping "
-                 "test (implicitly passes). This is only valid if the number "
-                 "of image formats is also 0.\n");
+        log_info("Device does not support read-write images. Skipping test.\n");
         return TEST_SKIPPED_ITSELF;
     }
 
     if (maxReadWriteImageArgs < minRequiredReadWriteImages)
     {
         log_error("ERROR: Reported max read/write image arg count is less than "
-                  "required! (%d)\n",
+                  "required! (%u)\n",
                   maxReadWriteImageArgs);
         return TEST_FAIL;
     }
@@ -640,7 +636,7 @@ REGISTER_TEST_VERSION(min_max_read_write_image_args, Version(2, 0))
     /* Create a program with that many read_write args */
     std::string programSrc = sample_read_write_image_kernel_pattern[0];
     programSrc += "read_write image2d_t img0";
-    for (i = 1; i < maxReadWriteImageArgs; i++)
+    for (unsigned i = 1; i < maxReadWriteImageArgs; i++)
     {
         snprintf(rwArgLine, sizeof(rwArgLine), rwArgPattern, i);
         programSrc += rwArgLine;
@@ -648,7 +644,7 @@ REGISTER_TEST_VERSION(min_max_read_write_image_args, Version(2, 0))
 
     programSrc += sample_read_write_image_kernel_pattern[1];
 
-    for (i = 0; i < maxReadWriteImageArgs; i++)
+    for (unsigned i = 0; i < maxReadWriteImageArgs; i++)
     {
         snprintf(
             rwArgLine, sizeof(rwArgLine),
@@ -670,7 +666,7 @@ REGISTER_TEST_VERSION(min_max_read_write_image_args, Version(2, 0))
 
     /* Create some I/O streams */
     std::vector<clMemWrapper> streams(maxReadWriteImageArgs);
-    for (i = 0; i < maxReadWriteImageArgs; i++)
+    for (unsigned i = 0; i < maxReadWriteImageArgs; i++)
     {
         for (unsigned p = 0; p < 16; p++) imageData[p * 4] = (cl_float)(i + p);
 
@@ -702,7 +698,7 @@ REGISTER_TEST_VERSION(min_max_read_write_image_args, Version(2, 0))
     // Each pixel of each image should have been incremented in kernel
     const size_t origin[3] = { 0, 0, 0 };
     const size_t region[3] = { 4, 4, 1 };
-    for (i = 0; i < maxReadWriteImageArgs; i++)
+    for (unsigned i = 0; i < maxReadWriteImageArgs; i++)
     {
         cl_float pixels[4 * 4 * 4] = { 0.f };
         error = clEnqueueReadImage(queue, streams[i], CL_TRUE, origin, region,
