@@ -28,9 +28,6 @@ __kernel void test(__global int* dst) {
 }
 )CLC";
 
-// __OPENCL_C_VERSION__ requires support for OpenCL C 1.2 or newer
-Version min_macro_clc_version() { return Version(1, 2); }
-
 // This sub-test verifies if __OPENCL_C_VERSION__ preprocessor macro matches
 // specific version the kernel was built for.
 int test_version_macro(cl_context context, cl_command_queue queue,
@@ -79,8 +76,9 @@ int test_version_macro(cl_context context, cl_command_queue queue,
     return TEST_PASS;
 }
 
-// Collects all supported OpenCL C versions to test
-int get_all_clc_versions(cl_device_id device, std::vector<Version>& versions)
+// Collects the OpenCL C versions that require __OPENCL_C_VERSION__
+int get_macro_supported_clc_versions(cl_device_id device,
+                                     std::vector<Version>& versions)
 {
     size_t sz = 0;
     cl_int error =
@@ -106,13 +104,15 @@ int get_all_clc_versions(cl_device_id device, std::vector<Version>& versions)
 
         const Version version = Version(CL_VERSION_MAJOR(clc_version.version),
                                         CL_VERSION_MINOR(clc_version.version));
-        if (version >= min_macro_clc_version())
+        if (version >= Version(1, 2))
         {
             versions.push_back(version);
         }
     }
 
     return TEST_PASS;
+}
+
 }
 
 const char* test_kernel = R"CLC(
@@ -124,7 +124,8 @@ __kernel void test(__global int* dst) {
 // This sub-test checks that CL_DEVICE_OPENCL_C_VERSION meets any API
 // requirements and that programs can be built for the reported OpenCL C version
 // and all previous versions.
-int test_CL_DEVICE_OPENCL_C_VERSION(cl_device_id device, cl_context context)
+static int test_CL_DEVICE_OPENCL_C_VERSION(cl_device_id device,
+                                           cl_context context)
 {
     const Version latest_version = Version(3, 1);
 
@@ -201,8 +202,8 @@ int test_CL_DEVICE_OPENCL_C_VERSION(cl_device_id device, cl_context context)
 // This sub-test checks that CL_DEVICE_OPENCL_C_ALL_VERSIONS includes any
 // requirements for the API version, and that programs can be built for all
 // reported versions.
-int test_CL_DEVICE_OPENCL_C_ALL_VERSIONS(cl_device_id device,
-                                         cl_context context)
+static int test_CL_DEVICE_OPENCL_C_ALL_VERSIONS(cl_device_id device,
+                                                cl_context context)
 {
     // For now, the required OpenCL C version is the same as the API version.
     const Version api_version = get_device_cl_version(device);
@@ -276,8 +277,8 @@ int test_CL_DEVICE_OPENCL_C_ALL_VERSIONS(cl_device_id device,
 
 // This sub-test checks that any required features are present for a specific
 // CL_DEVICE_OPENCL_C_VERSION.
-int test_CL_DEVICE_OPENCL_C_VERSION_features(cl_device_id device,
-                                             cl_context context)
+static int test_CL_DEVICE_OPENCL_C_VERSION_features(cl_device_id device,
+                                                    cl_context context)
 {
     log_info("  testing for OPENCL_C_VERSION required features\n");
 
@@ -320,8 +321,8 @@ int test_CL_DEVICE_OPENCL_C_VERSION_features(cl_device_id device,
 
 // This sub-test checks that all required OpenCL C versions are present for a
 // specific CL_DEVICE_OPENCL_C_VERSION.
-int test_CL_DEVICE_OPENCL_C_VERSION_versions(cl_device_id device,
-                                             cl_context context)
+static int test_CL_DEVICE_OPENCL_C_VERSION_versions(cl_device_id device,
+                                                    cl_context context)
 {
     log_info("  testing for OPENCL_C_VERSION required versions\n");
 
@@ -383,26 +384,24 @@ int test_CL_DEVICE_OPENCL_C_VERSION_versions(cl_device_id device,
     return TEST_PASS;
 }
 
-}
-
 REGISTER_TEST(opencl_c_version_macro)
 {
     check_compiler_available(device);
 
     const Version clc_version = get_device_cl_c_version(device);
-    if (clc_version < min_macro_clc_version())
+    if (clc_version < Version(1, 2))
     {
         log_info("Device reports OpenCL C %s, the __OPENCL_C_VERSION__ macro "
                  "requires OpenCL C %s or newer. Skipping the test.\n",
                  clc_version.to_string().c_str(),
-                 min_macro_clc_version().to_string().c_str());
+                 Version(1, 2).to_string().c_str());
         return TEST_SKIPPED_ITSELF;
     }
 
     std::vector<Version> versions;
     if (get_device_cl_version(device) >= Version(3, 0))
     {
-        if (get_all_clc_versions(device, versions) != TEST_PASS)
+        if (get_macro_supported_clc_versions(device, versions) != TEST_PASS)
         {
             return TEST_FAIL;
         }

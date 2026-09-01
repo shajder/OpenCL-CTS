@@ -152,10 +152,17 @@
     },
     "test_commonfns": {
         "": {
+            "opencl_c_version_macro": "pass"
+        }
+    },
+    "test_compiler": {
+        "": {
             "clamp": "pass",
             "clamp_scalar_bounds": "pass"
         }
     },
+
+
     "test_computeinfo": {
         "": {
             "computeinfo": "pass",
