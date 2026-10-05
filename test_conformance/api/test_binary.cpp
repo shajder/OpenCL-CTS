@@ -257,31 +257,36 @@ REGISTER_TEST(binary_create_negative_status)
         context, 1, &device, &binarySize, (const unsigned char **)buffers,
         binary_status, &error);
 
-    test_failure_error_ret(error, CL_INVALID_VALUE,
-                           "clCreateProgramWithBinary should return "
-                           "CL_INVALID_VALUE when lengths[0] is zero",
-                           TEST_FAIL);
+    test_object_failure_ret(program_from_binary, error, CL_INVALID_VALUE,
+                            "clCreateProgramWithBinary should return "
+                            "CL_INVALID_VALUE when lengths[0] is zero",
+                            TEST_FAIL);
 
-    test_assert_error_ret(program_from_binary == nullptr,
-                          "clCreateProgramWithBinary should return nullptr "
-                          "when lengths[0] is zero",
-                          TEST_FAIL);
+    if (binary_status[0] != CL_INVALID_VALUE)
+    {
+        log_error("ERROR: binary_status[0] should be CL_INVALID_VALUE "
+                  "when lengths[0] is zero\n");
+        return TEST_FAIL;
+    }
 
     binarySize = binary.size();
     buffers[0] = nullptr;
+    binary_status[0] = 0;
     program_from_binary = clCreateProgramWithBinary(
         context, 1, &device, &binarySize, (const unsigned char **)buffers,
         binary_status, &error);
 
-    test_failure_error_ret(error, CL_INVALID_VALUE,
-                           "clCreateProgramWithBinary should return "
-                           "CL_INVALID_VALUE when binaries[0] is NULL",
-                           TEST_FAIL);
+    test_object_failure_ret(program_from_binary, error, CL_INVALID_VALUE,
+                            "clCreateProgramWithBinary should return "
+                            "CL_INVALID_VALUE when binaries[0] is NULL",
+                            TEST_FAIL);
 
-    test_assert_error_ret(program_from_binary == nullptr,
-                          "clCreateProgramWithBinary should return nullptr "
-                          "when binaries[0] is NULL",
-                          TEST_FAIL);
+    if (binary_status[0] != CL_INVALID_VALUE)
+    {
+        log_error("ERROR: binary_status[0] should be CL_INVALID_VALUE "
+                  "when binaries[0] is NULL\n");
+        return TEST_FAIL;
+    }
 
     return TEST_PASS;
 }
