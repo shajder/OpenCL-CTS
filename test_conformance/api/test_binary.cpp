@@ -245,16 +245,17 @@ REGISTER_TEST(binary_create_negative_status)
     std::vector<unsigned char> binary(binarySize, 0);
 
     // Create a buffer and get the actual binary
-    const unsigned char *buffers[1] = { binary.data() };
+    unsigned char *buffers[1] = { binary.data() };
 
     error = clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(buffers),
-                             &buffers, NULL);
+                             buffers, NULL);
     test_error(error, "Unable to get program binary");
 
     binarySize = 0;
     cl_int binary_status[1] = { 0 };
     program_from_binary = clCreateProgramWithBinary(
-        context, 1, &device, &binarySize, buffers, binary_status, &error);
+        context, 1, &device, &binarySize, (const unsigned char **)buffers,
+        binary_status, &error);
 
     test_failure_error_ret(error, CL_INVALID_VALUE,
                            "clCreateProgramWithBinary should return "
@@ -269,7 +270,8 @@ REGISTER_TEST(binary_create_negative_status)
     binarySize = binary.size();
     buffers[0] = nullptr;
     program_from_binary = clCreateProgramWithBinary(
-        context, 1, &device, &binarySize, buffers, binary_status, &error);
+        context, 1, &device, &binarySize, (const unsigned char **)buffers,
+        binary_status, &error);
 
     test_failure_error_ret(error, CL_INVALID_VALUE,
                            "clCreateProgramWithBinary should return "
