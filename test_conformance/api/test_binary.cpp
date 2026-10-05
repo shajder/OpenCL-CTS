@@ -220,8 +220,8 @@ REGISTER_TEST(binary_create)
 REGISTER_TEST(binary_create_negative_status)
 {
     /* To test this in a self-contained fashion, we have to create a program
-   with source, then get the binary, then use that binary to reload the program,
-   and then verify */
+       with source, then get the binary, then pass invalid parameters to
+       clCreateProgramWithBinary and verify binary_status[i]. */
 
     clProgramWrapper program, program_from_binary;
     size_t binarySize = 0;
@@ -239,7 +239,7 @@ REGISTER_TEST(binary_create_negative_status)
     if (binarySize == 0)
     {
         log_error("ERROR: Binary size of program is zero\n");
-        return -1;
+        return TEST_FAIL;
     }
 
     std::vector<unsigned char> binary(binarySize, 0);
@@ -252,7 +252,7 @@ REGISTER_TEST(binary_create_negative_status)
     test_error(error, "Unable to get program binary");
 
     binarySize = 0;
-    cl_int binary_status[1] = { 42 };
+    cl_int binary_status[1] = { 0 };
     program_from_binary = clCreateProgramWithBinary(
         context, 1, &device, &binarySize, buffers, binary_status, &error);
 
@@ -261,12 +261,10 @@ REGISTER_TEST(binary_create_negative_status)
                            "CL_INVALID_VALUE when lengths[0] is zero",
                            TEST_FAIL);
 
-    if (binary_status[0] != 42)
-    {
-        log_error("ERROR: binary_status[0] should remain unchanged when "
-                  "clCreateProgramWithBinary fails");
-        return TEST_FAIL;
-    }
+    test_assert_error_ret(program_from_binary == nullptr,
+                          "clCreateProgramWithBinary should return nullptr "
+                          "when lengths[0] is zero",
+                          TEST_FAIL);
 
     binarySize = binary.size();
     buffers[0] = nullptr;
@@ -278,12 +276,10 @@ REGISTER_TEST(binary_create_negative_status)
                            "CL_INVALID_VALUE when binaries[0] is NULL",
                            TEST_FAIL);
 
-    if (binary_status[0] != 42)
-    {
-        log_error("ERROR: binary_status[0] should remain unchanged when "
-                  "clCreateProgramWithBinary fails");
-        return TEST_FAIL;
-    }
+    test_assert_error_ret(program_from_binary == nullptr,
+                          "clCreateProgramWithBinary should return nullptr "
+                          "when binaries[0] is NULL",
+                          TEST_FAIL);
 
     return TEST_PASS;
 }
