@@ -269,6 +269,7 @@ REGISTER_TEST(binary_create_negative_status)
         return TEST_FAIL;
     }
 
+    error = CL_SUCCESS;
     binarySize = binary.size();
     buffers[0] = nullptr;
     binary_status[0] = 0;
