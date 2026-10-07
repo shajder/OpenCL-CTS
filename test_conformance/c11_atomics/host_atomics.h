@@ -352,9 +352,14 @@ CorrespondingType host_atomic_exchange(volatile AtomicType *a, CorrespondingType
     if constexpr (sizeof(CorrespondingType) == 2)
         return InterlockedExchange16(reinterpret_cast<volatile SHORT *>(a),
                                      *reinterpret_cast<SHORT *>(&c));
-    else
+    else if constexpr (sizeof(CorrespondingType) == 8)
+        return InterlockedExchange64(reinterpret_cast<volatile LONG64 *>(a),
+                                     *reinterpret_cast<LONG64 *>(&c));
+    else if constexpr (sizeof(CorrespondingType) == 4)
         return InterlockedExchange(reinterpret_cast<volatile LONG *>(a),
                                    *reinterpret_cast<LONG *>(&c));
+    else
+        static_assert(sizeof(AtomicType) == 0, "Unsupported atomic type size");
 #elif defined(__GNUC__)
     return __sync_lock_test_and_set(a, *reinterpret_cast<AtomicType *>(&c));
 #else
@@ -379,8 +384,15 @@ bool host_atomic_compare_exchange_int(volatile AtomicType *a,
             InterlockedCompareExchange16(reinterpret_cast<volatile SHORT *>(a),
                                          *reinterpret_cast<SHORT *>(&desired),
                                          *reinterpret_cast<SHORT *>(expected));
-    else
+    else if constexpr (sizeof(AtomicType) == 8)
+        tmp =
+            InterlockedCompareExchange64(reinterpret_cast<volatile LONG64 *>(a),
+                                         *reinterpret_cast<LONG64 *>(&desired),
+                                         *reinterpret_cast<LONG64 *>(expected));
+    else if constexpr (sizeof(AtomicType) == 4)
         tmp = InterlockedCompareExchange(a, desired, *expected);
+    else
+        static_assert(sizeof(AtomicType) == 0, "Unsupported atomic type size");
 #elif defined(__GNUC__)
     tmp = __sync_val_compare_and_swap(a, *expected, desired);
 #else
@@ -445,10 +457,14 @@ CorrespondingType host_atomic_load(volatile AtomicType *a,
 #if defined( _MSC_VER ) || (defined( __INTEL_COMPILER ) && defined(WIN32))
     if constexpr (sizeof(CorrespondingType) == 2)
         return InterlockedOr16(reinterpret_cast<volatile SHORT *>(a), 0);
-    else
+    else if constexpr (sizeof(CorrespondingType) == 8)
+        return InterlockedOr64(reinterpret_cast<volatile LONG64 *>(a), 0);
+    else if constexpr (sizeof(CorrespondingType) == 4)
         return InterlockedExchangeAdd(reinterpret_cast<volatile LONG *>(a), 0);
+    else
+        static_assert(sizeof(AtomicType) == 0, "Unsupported atomic type size");
 #elif defined(__GNUC__)
-  return __sync_add_and_fetch(a, 0);
+    return __sync_add_and_fetch(a, 0);
 #else
   log_info("Host function not implemented: atomic_load\n");
   return 0;
