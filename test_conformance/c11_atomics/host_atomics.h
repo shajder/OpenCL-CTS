@@ -350,8 +350,14 @@ CorrespondingType host_atomic_exchange(volatile AtomicType *a, CorrespondingType
 {
 #if defined( _MSC_VER ) || (defined( __INTEL_COMPILER ) && defined(WIN32))
     if constexpr (sizeof(CorrespondingType) == 2)
-        return InterlockedExchange16(reinterpret_cast<volatile SHORT *>(a),
-                                     *reinterpret_cast<SHORT *>(&c));
+    {
+        static_assert(std::is_same_v<CorrespondingType, HOST_HALF>,
+                      "2-byte host atomics are only used for half");
+
+        return static_cast<cl_half>(
+            InterlockedExchange16(reinterpret_cast<volatile SHORT *>(a),
+                                  *reinterpret_cast<SHORT *>(&c)));
+    }
     else if constexpr (sizeof(CorrespondingType) == 8)
         return InterlockedExchange64(reinterpret_cast<volatile LONG64 *>(a),
                                      *reinterpret_cast<LONG64 *>(&c));
@@ -454,9 +460,15 @@ template <typename AtomicType, typename CorrespondingType>
 CorrespondingType host_atomic_load(volatile AtomicType *a,
                                    TExplicitMemoryOrderType order)
 {
-#if defined( _MSC_VER ) || (defined( __INTEL_COMPILER ) && defined(WIN32))
+#if defined(_MSC_VER) || (defined(__INTEL_COMPILER) && defined(WIN32))
     if constexpr (sizeof(CorrespondingType) == 2)
-        return InterlockedOr16(reinterpret_cast<volatile SHORT *>(a), 0);
+    {
+        static_assert(std::is_same_v<CorrespondingType, HOST_HALF>,
+                      "2-byte host atomics are only used for half");
+
+        return static_cast<cl_half>(
+            InterlockedOr16(reinterpret_cast<volatile SHORT *>(a), 0));
+    }
     else if constexpr (sizeof(CorrespondingType) == 8)
         return InterlockedOr64(reinterpret_cast<volatile LONG64 *>(a), 0);
     else if constexpr (sizeof(CorrespondingType) == 4)
